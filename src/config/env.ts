@@ -29,6 +29,11 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_ORG_MONTHLY_BUDGET_USD: z.coerce.number().default(50),
   OPENAI_MAX_TOKENS_PER_REQUEST: z.coerce.number().default(2000),
+  // B-063: Fail-open controls for OpenAI degradation scenarios.
+  OPENAI_FAIL_OPEN_ENABLED: z.string().default("true"),
+  OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().default(2000),
+  OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().default(2),
+  OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().default(500),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -416,5 +421,11 @@ export const config = {
     apiKey: env.OPENAI_API_KEY,
     orgMonthlyBudgetUsd: env.OPENAI_ORG_MONTHLY_BUDGET_USD,
     maxTokensPerRequest: env.OPENAI_MAX_TOKENS_PER_REQUEST,
+    // Fail-open behaviour: if true, downstream callers will be allowed to continue
+    // when the OpenAI service is degraded (timeouts, rate limits, network issues).
+    failOpenEnabled: env.OPENAI_FAIL_OPEN_ENABLED === "true",
+    failOpenTimeoutMs: env.OPENAI_FAIL_OPEN_TIMEOUT_MS,
+    failOpenMaxRetries: env.OPENAI_FAIL_OPEN_MAX_RETRIES,
+    failOpenRetryBaseMs: env.OPENAI_FAIL_OPEN_RETRY_BASE_MS,
   },
 };

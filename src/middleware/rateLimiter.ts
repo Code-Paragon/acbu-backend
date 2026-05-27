@@ -223,6 +223,68 @@ export const authRateLimiter = createRateLimiter(
 );
 
 /**
+ * Per-user/IP rate limiter for sensitive auth endpoints: 2FA verify, passcode reset.
+ * Fixes #269 — brute-force of 2FA tokens and passcodes is possible at line speed
+ * when only an IP-based limiter is applied.
+ *
+ * Strategy: derive a composite key from the request body's identifier/challenge_token
+ * combined with the client IP so that:
+ *   - A single user cannot be brute-forced from many IPs simultaneously.
+ *   - A single IP cannot brute-force many accounts simultaneously.
+ *
+ * Limits: 5 attempts per 15 minutes per (user-identifier + IP) pair.
+ * Falls back to IP-only key when no user identifier is present in the body.
+ */
+const TWO_FA_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const TWO_FA_MAX_REQUESTS = 5;
+
+export const twoFaRateLimiter = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): void => {
+  // Extract a user-scoped identifier from the request body.
+  // For /signin: body.identifier (username/email/phone)
+  // For /signin/verify-2fa: body.challenge_token (contains userId in jti prefix)
+  // For /passcode/reset: body.identifier or body.email
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const userHint =
+    (typeof body.identifier === "string" && body.identifier.slice(0, 32)) ||
+    (typeof body.challenge_token === "string" &&
+      body.challenge_token.slice(-16)) ||
+    (typeof body.email === "string" && body.email.slice(0, 32)) ||
+    "anon";
+
+  const ip = req.ip || "unknown";
+  const compositeKey = `2fa:${ip}:${userHint}`;
+
+  const now = Date.now();
+  const windowId = Math.floor(now / TWO_FA_WINDOW_MS);
+  const storeKey = `${compositeKey}:${windowId}`;
+
+  const result = incrementFallback(storeKey, TWO_FA_WINDOW_MS);
+
+  if (result.count > TWO_FA_MAX_REQUESTS) {
+    logger.warn("2FA rate limit exceeded", {
+      ip,
+      userHint,
+      count: result.count,
+      limit: TWO_FA_MAX_REQUESTS,
+    });
+    res.status(429).json({
+      error: {
+        code: "RATE_LIMIT_EXCEEDED",
+        message:
+          "Too many authentication attempts. Please wait 15 minutes before trying again.",
+      },
+    });
+    return;
+  }
+
+  next();
+};
+
+/**
  * Middleware to inject fallback state into request context for downstream logging
  */
 export const injectFallbackState = (

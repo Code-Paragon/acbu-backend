@@ -14,6 +14,7 @@ import { validateApiKey } from "../middleware/auth";
 import {
   authRateLimiter,
   apiKeyRateLimiter,
+  twoFaRateLimiter,
 } from "../middleware/rateLimiter";
 
 /**
@@ -212,8 +213,9 @@ import {
 const router: ReturnType<typeof Router> = Router();
 
 router.post("/signup", authRateLimiter, postSignup);
-router.post("/signin", authRateLimiter, postSignin);
-router.post("/signin/verify-2fa", authRateLimiter, postVerify2fa);
+// #269: twoFaRateLimiter adds per-user/IP keyed limiting on top of the IP-only authRateLimiter
+router.post("/signin", authRateLimiter, twoFaRateLimiter, postSignin);
+router.post("/signin/verify-2fa", authRateLimiter, twoFaRateLimiter, postVerify2fa);
 
 // Signout requires API key
 router.post("/signout", validateApiKey, apiKeyRateLimiter, postSignout);

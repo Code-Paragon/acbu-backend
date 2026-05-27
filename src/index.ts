@@ -59,9 +59,13 @@ app.use(requestLogger);
 // Rate limiting
 app.use(standardRateLimiter);
 
-// API Documentation (disabled in production for security)
+// API Documentation — disabled in production to prevent endpoint enumeration (#274)
 if (config.nodeEnv !== "production") {
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  // Raw JSON spec for tooling / CI spec-drift checks (#292)
+  app.get("/api-docs.json", (_req, res) => {
+    res.json(swaggerSpec);
+  });
 }
 
 // Routes

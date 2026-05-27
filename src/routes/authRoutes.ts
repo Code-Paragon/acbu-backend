@@ -12,8 +12,9 @@ import {
 } from "../controllers/authController";
 import { validateApiKey } from "../middleware/auth";
 import {
-  standardRateLimiter,
+  authRateLimiter,
   apiKeyRateLimiter,
+  twoFaRateLimiter,
 } from "../middleware/rateLimiter";
 
 /**
@@ -96,6 +97,9 @@ import {
  *                 type: string
  *                 minLength: 1
  *                 description: User's passcode
+ *               captcha_token:
+ *                 type: string
+ *                 description: Optional CAPTCHA token required when the auth service requests bot verification
  *     responses:
  *       200:
  *         description: Authentication successful or 2FA required
@@ -208,11 +212,10 @@ import {
 
 const router: ReturnType<typeof Router> = Router();
 
-router.use(standardRateLimiter);
-
-router.post("/signup", postSignup);
-router.post("/signin", postSignin);
-router.post("/signin/verify-2fa", postVerify2fa);
+router.post("/signup", authRateLimiter, postSignup);
+// #269: twoFaRateLimiter adds per-user/IP keyed limiting on top of the IP-only authRateLimiter
+router.post("/signin", authRateLimiter, twoFaRateLimiter, postSignin);
+router.post("/signin/verify-2fa", authRateLimiter, twoFaRateLimiter, postVerify2fa);
 
 // Signout requires API key
 router.post("/signout", validateApiKey, apiKeyRateLimiter, postSignout);

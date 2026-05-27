@@ -4,15 +4,23 @@ import { logger } from "../config/logger";
 export class AppError extends Error {
   statusCode: number;
   code: string;
-  details?: any;
   isOperational: boolean;
   details?: unknown;
 
-  constructor(message: string, statusCode: number, details?: unknown) {
+  constructor(
+    message: string,
+    statusCode: number,
+    codeOrDetails?: string | unknown,
+    details?: unknown,
+  ) {
     super(message);
     this.statusCode = statusCode;
-    this.details = details;
+    this.code =
+      typeof codeOrDetails === "string" ? codeOrDetails : "APP_ERROR";
+    this.details =
+      typeof codeOrDetails === "string" ? details : codeOrDetails;
     this.isOperational = true;
+    Object.setPrototypeOf(this, new.target.prototype);
     Error.captureStackTrace(this, this.constructor);
   }
 }

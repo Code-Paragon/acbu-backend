@@ -73,6 +73,30 @@ describe("EventListener", () => {
     expect(mockForContract).toHaveBeenCalledTimes(1);
   });
 
+  it("attaches a schema version to parsed contract events", async () => {
+    const listener = new EventListener();
+    const received: unknown[] = [];
+
+    listener.listenToContractEvents(
+      "contract-123",
+      ["contract_credited"],
+      async (event) => {
+        received.push(event);
+      },
+    );
+
+    await listener.dispatchRawEffect("contract-123", {
+      contract: "contract-123",
+      type: "contract_credited",
+      ledger: 88,
+      created_at: "2026-04-23T00:00:00.000Z",
+      paging_token: "cursor-88",
+    });
+
+    expect(received).toHaveLength(1);
+    expect((received[0] as Record<string, unknown>).version).toBe(1);
+  });
+
   it("retries transient handler failures so injected events still reach the projection store", async () => {
     const listener = new EventListener();
     const projectionStore: string[] = [];

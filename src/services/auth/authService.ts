@@ -6,6 +6,7 @@
  */
 import bcrypt from "bcryptjs";
 import { totp } from "otplib";
+import { config } from "../../config/env";
 import { prisma } from "../../config/database";
 import { generateApiKey } from "../../middleware/auth";
 import { signChallengeToken, verifyChallengeToken } from "../../utils/jwt";
@@ -15,8 +16,13 @@ import { QUEUES } from "../../config/rabbitmq";
 import { ensureWalletForUser } from "../wallet/walletService";
 import { logAudit } from "../audit";
 import { authBruteGuard } from "../../utils/authBruteGuard";
+import {
+  PermissionsArraySchema,
+  PermissionScope,
+} from "../../types/permissions";
 
-const DUMMY_HASH = "$2a$10$CwTycUXWue0Thq9StjUM0uEnOTWj2XOTl0pypEQuA7y2h2H6jX.m2"; // hash for 'dummy'
+const DUMMY_HASH =
+  "$2a$10$CwTycUXWue0Thq9StjUM0uEnOTWj2XOTl0pypEQuA7y2h2H6jX.m2"; // hash for 'dummy'
 
 export interface SignupParams {
   username: string;
@@ -133,20 +139,31 @@ function isAdminTierUser(tier: string | null | undefined): boolean {
   return tier === ADMIN_TIER;
 }
 
-function validateAdminScopes(scopes: string[]): string[] {
-  if (!Array.isArray(scopes) || scopes.length === 0) {
-    return [];
+function validateAdminScopes(scopes: string[]): PermissionScope[] {
+  const parsed = PermissionsArraySchema.safeParse(scopes);
+  if (!parsed.success) {
+    const invalid = parsed.error.errors.map((e) => e.message).join(", ");
+    throw new Error(`Invalid permission scope(s): ${invalid}`);
   }
-  const allowed = new Set<string>(ADMIN_SCOPES);
-  return scopes.filter((scope) => allowed.has(scope));
+  const adminOnly = parsed.data.filter((s) =>
+    (ADMIN_SCOPES as readonly string[]).includes(s),
+  );
+  if (adminOnly.length === 0) {
+    throw new Error("At least one admin scope is required");
+  }
+  return adminOnly as PermissionScope[];
 }
 
 async function publishOtp(channel: "sms" | "email", to: string, code: string) {
   const ch = getRabbitMQChannel();
   await ch.assertQueue(QUEUES.OTP_SEND, { durable: true });
-  ch.sendToQueue(QUEUES.OTP_SEND, Buffer.from(JSON.stringify({ channel, to, code })), {
-    persistent: true,
-  });
+  ch.sendToQueue(
+    QUEUES.OTP_SEND,
+    Buffer.from(JSON.stringify({ channel, to, code })),
+    {
+      persistent: true,
+    },
+  );
 }
 
 async function verifyMfaChallengeForUser(
@@ -223,9 +240,8 @@ export async function resolveUserByIdentifier(identifier: string) {
       id: true,
       passcodeHash: true,
       twoFaMethod: true,
-      tier: true,
-      actorType: true,
-      organizationId: true,
+      failedSigninAttempts: true,
+      lockoutUntil: true,
     },
   });
 
@@ -309,12 +325,16 @@ export async function signin(params: SigninParams): Promise<SigninResult> {
   // TODO: Verify captchaToken here if provided
 
   const user = await resolveUserByIdentifier(identifier);
-  // passcodeHash is always present (real or dummy)
-  const match = await bcrypt.compare(passcode, user.passcodeHash!);
 
-  if (user.isDummy || !match) {
-    await authBruteGuard.recordFailure(identifier, ip);
-    logger.warn("Signin: invalid credentials", {
+  if (user?.lockoutUntil && user.lockoutUntil > new Date()) {
+    logger.warn("Signin: account locked", { userId: user.id });
+    throw new Error(
+      "Account locked due to too many failed attempts. Please try again later.",
+    );
+  }
+
+  if (!user || !user.passcodeHash) {
+    logger.warn("Signin: user not found or no passcode", {
       identifier:
         identifier.includes("@") && identifier.includes(".")
           ? "***"
@@ -323,24 +343,37 @@ export async function signin(params: SigninParams): Promise<SigninResult> {
     throw new Error("Invalid credentials");
   }
 
-  // 2. Reset brute guard on success
-  await authBruteGuard.reset(identifier, ip);
+  const match = await bcrypt.compare(passcode, user.passcodeHash);
+  if (!match) {
+    const failedAttempts = user.failedSigninAttempts + 1;
+    const isLockout = failedAttempts >= config.maxSigninAttempts;
 
-  const mustUseMfa = isAdminTierUser(user.tier);
-  if (mustUseMfa && !user.twoFaMethod) {
-    await logAudit({
-      eventType: "auth",
-      entityType: "user",
-      entityId: user.id,
-      action: "signin_denied_missing_mfa",
-      performedBy: user.id,
-      actorType: user.actorType,
-      keyType: "USER_KEY",
-      organizationId: user.organizationId ?? undefined,
-      reason: "Admin-tier user attempted signin without configured MFA",
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedSigninAttempts: failedAttempts,
+        lockoutUntil: isLockout
+          ? new Date(Date.now() + config.signinLockoutDurationMs)
+          : null,
+      },
     });
-    throw new Error("2FA required for admin-tier users");
+
+    logger.warn("Signin: invalid passcode", {
+      userId: user.id,
+      failedAttempts,
+      isLockout,
+    });
+    throw new Error("Invalid credentials");
   }
+
+  // Success: reset failed attempts
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      failedSigninAttempts: 0,
+      lockoutUntil: null,
+    },
+  });
 
   if (user.twoFaMethod) {
     if (user.twoFaMethod === "sms" || user.twoFaMethod === "email") {
@@ -444,17 +477,42 @@ export async function verify2fa(
       id: true,
       twoFaMethod: true,
       totpSecretEncrypted: true,
-      actorType: true,
-      organizationId: true,
+      lockoutUntil: true,
+      failedSigninAttempts: true,
     },
   });
-  if (!user || !user.twoFaMethod)
-    throw new Error("Invalid credentials"); // Uniform message
+  if (!user || !user.twoFaMethod) throw new Error("Invalid credentials"); // Uniform message
 
-  let valid = false;
+  if (user.lockoutUntil && user.lockoutUntil > new Date()) {
+    logger.warn("Verify2FA: account locked", { userId: user.id });
+    throw new Error(
+      "Account locked due to too many failed attempts. Please try again later.",
+    );
+  }
+
+  const handleFailure = async () => {
+    const failedAttempts = user.failedSigninAttempts + 1;
+    const isLockout = failedAttempts >= config.maxSigninAttempts;
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedSigninAttempts: failedAttempts,
+        lockoutUntil: isLockout
+          ? new Date(Date.now() + config.signinLockoutDurationMs)
+          : null,
+      },
+    });
+  };
+
   if (user.twoFaMethod === "totp") {
     if (!user.totpSecretEncrypted) throw new Error("TOTP not configured");
-    valid = totp.check(code, user.totpSecretEncrypted);
+    const valid = totp.check(code, user.totpSecretEncrypted);
+    if (!valid) {
+      logger.warn("Verify2FA: invalid TOTP", { userId: user.id });
+      await handleFailure();
+      throw new Error("Invalid code");
+    }
   } else if (user.twoFaMethod === "sms" || user.twoFaMethod === "email") {
     const now = new Date();
     const challenge = await prisma.otpChallenge.findFirst({
@@ -466,24 +524,23 @@ export async function verify2fa(
       },
       orderBy: { createdAt: "desc" },
     });
-    if (challenge) {
-      valid = await bcrypt.compare(code, challenge.codeHash);
-      if (valid) {
-        await prisma.otpChallenge.update({
-          where: { id: challenge.id },
-          data: { usedAt: now },
-        });
-      }
+    if (!challenge) throw new Error("Invalid or expired code");
+    const match = await bcrypt.compare(code, challenge.codeHash);
+    if (!match) {
+      logger.warn("Verify2FA: invalid OTP", { userId: user.id });
+      await handleFailure();
+      throw new Error("Invalid code");
     }
   }
 
-  if (!valid) {
-    await authBruteGuard.recordFailure(user.id, ip);
-    logger.warn("Verify2FA: invalid code", { userId: user.id });
-    throw new Error("Invalid credentials"); // Uniform message
-  }
-
-  await authBruteGuard.reset(user.id, ip);
+  // Success: reset failed attempts
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      failedSigninAttempts: 0,
+      lockoutUntil: null,
+    },
+  });
 
   const api_key = await generateApiKey(user.id, []);
   const wallet = await ensureWalletForUser(user.id);
@@ -655,7 +712,9 @@ export async function issueBreakGlassKey(
 
   const ttlMinutes = params.ttlMinutes ?? BREAK_GLASS_DEFAULT_TTL_MINUTES;
   if (ttlMinutes < 1 || ttlMinutes > BREAK_GLASS_MAX_TTL_MINUTES) {
-    throw new Error(`Break-glass TTL must be between 1 and ${BREAK_GLASS_MAX_TTL_MINUTES} minutes`);
+    throw new Error(
+      `Break-glass TTL must be between 1 and ${BREAK_GLASS_MAX_TTL_MINUTES} minutes`,
+    );
   }
 
   const permissions =

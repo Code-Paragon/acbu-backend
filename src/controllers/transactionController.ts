@@ -5,6 +5,7 @@ import { Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "../config/database";
 import { AuthRequest } from "../middleware/auth";
+import { AppError } from "../middleware/errorHandler";
 
 export const listTransactionsQuerySchema = z.object({
   limit: z
@@ -31,8 +32,14 @@ export async function listMyTransactions(
       throw new AppError("User-scoped API key required", 401, "UNAUTHORIZED");
     }
 
+    const query = listTransactionsQuerySchema.safeParse(req.query);
     if (!query.success) {
-      throw new AppError("Invalid query parameters", 400, "VALIDATION_ERROR", query.error.flatten());
+      throw new AppError(
+        "Invalid query parameters",
+        400,
+        "VALIDATION_ERROR",
+        query.error.flatten(),
+      );
     }
     const { limit, cursor } = query.data;
 

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { config } from "../config/env";
 import { deepHealthCheck } from "../controllers/healthController";
+import { requireAdminApiKey } from "../middleware/adminAuth";
 import reserveRoutes from "./reserveRoutes";
 import recipientRoutes from "./recipientRoutes";
 import transferRoutes from "./transferRoutes";
@@ -28,6 +29,7 @@ import governmentFundsRoutes from "./governmentFundsRoutes";
 import investmentRoutes from "./investmentRoutes";
 import fiatRoutes from "./fiatRoutes";
 import configRoutes from "./configRoutes";
+import complianceRoutes from "./complianceRoutes";
 import kycRoutes from "./kycRoutes";
 
 const router: ReturnType<typeof Router> = Router();
@@ -62,10 +64,10 @@ router.get("/changelog", (_req, res) => {
 router.get("/health/ready", deepHealthCheck);
 
 // Deep health check — probes PostgreSQL, MongoDB, RabbitMQ; returns 503 if any are down
-router.get("/health/deep", deepHealthCheck);
+router.get("/health/deep", requireAdminApiKey, deepHealthCheck);
 
 // Extended health / metrics (reserve ratio when available; for monitoring dashboards)
-router.get("/health/metrics", deepHealthCheck);
+router.get("/health/metrics", requireAdminApiKey, deepHealthCheck);
 
 // API routes
 router.use("/auth", authRoutes);
@@ -97,5 +99,6 @@ router.use("/config", configRoutes);
 router.use("/kyc", kycRoutes);
 router.use("/webhooks", webhookRoutes);
 router.use("/compliance", complianceRoutes);
+router.use("/admin/weight-drift-audits", weightDriftAuditRoutes);
 
 export default router;

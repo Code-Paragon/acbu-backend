@@ -62,7 +62,7 @@ export class RebalancingEngine {
       const excessUsd = (totalReserveUsd * excessPct) / 100;
       if (excessUsd <= 0) continue;
       try {
-        const providerFrom = router.getProvider(over.currency);
+        const providerFrom = await router.getProvider(over.currency);
         const rateFrom = await providerFrom.convertCurrency(
           1,
           over.currency,
@@ -76,7 +76,7 @@ export class RebalancingEngine {
             excessUsd;
           if (shareOfExcess <= 0) continue;
           try {
-            const providerTo = router.getProvider(under.currency);
+            const providerTo = await router.getProvider(under.currency);
             const rateTo = await providerTo.convertCurrency(
               1,
               under.currency,

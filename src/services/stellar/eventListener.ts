@@ -5,10 +5,13 @@ import { stellarClient } from "./client";
 export interface ContractEvent {
   contractId: string;
   type: string;
+  version: number;
   data: Record<string, unknown>;
   ledger: number;
   timestamp: number;
 }
+
+export const CONTRACT_EVENT_PAYLOAD_VERSION = 1;
 
 export type EventHandler = (event: ContractEvent) => Promise<void>;
 
@@ -326,6 +329,7 @@ export class EventListener {
     return {
       contractId,
       type,
+      version: CONTRACT_EVENT_PAYLOAD_VERSION,
       data: effect,
       ledger: Number.isFinite(ledger) ? ledger : 0,
       timestamp,

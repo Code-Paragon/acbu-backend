@@ -80,6 +80,10 @@ export class FintechProviderRouter {
     }
     return provider;
   }
+
+  getPreferredProviderId(currency: string): FintechProviderId | null {
+    return this.currencyProviders[currency]?.[0] ?? "flutterwave";
+  }
 }
 
 /** Singleton router; set by fintech/index.ts after registering providers. */

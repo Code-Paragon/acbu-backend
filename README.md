@@ -136,7 +136,7 @@ backend/
 ## API Documentation
 
 Once the server is running, API documentation is available at:
-- Swagger UI: `http://localhost:3000/api-docs`
+- Swagger UI: `http://localhost:3000/api-docs` (development only, disabled in production for security)
 
 **Segment routes** (require API key with segment scope): `/v1/p2p`, `/v1/sme`, `/v1/international`, `/v1/salary`, `/v1/enterprise`, `/v1/savings`, `/v1/lending`, `/v1/gateway`, `/v1/bills`. For a full list of routes and smart contracts, see the repo docs: [API and Contracts Reference](../DOCS/API_AND_CONTRACTS_REFERENCE.MD).
 
@@ -258,26 +258,18 @@ livenessProbe:
   failureThreshold: 3
 ```
 
-## Security and Reliability Features
+## CI/CD
 
-### Webhook Signature Verification
-- **Flutterwave:** HMAC-SHA256 signature verification using `verif-hash` header
-- **Paystack:** HMAC-SHA512 signature verification using `x-paystack-signature` header
-- **Timing-safe comparison:** Prevents timing side-channel attacks
-- **Dev bypass:** Optional `WEBHOOK_SIGNATURE_BYPASS=true` for local development (never use in production)
-- **Production guard:** Boot validation rejects startup if webhook secrets are missing in production
+GitHub Actions CI pipeline runs on:
+- Push to `main`, `dev`, or `develop` branches
+- Pull requests to `main`, `dev`, or `develop`
 
-### Stellar Transaction Retry Logic
-- **Sequence number drift handling:** Automatic retry for `tx_bad_seq` errors caused by concurrent transaction submissions
-- **Method:** `buildAndSubmitTransaction()` reloads account sequence and retries once before failing
-- **Use case:** Mint operations and other high-concurrency Stellar transactions
-- **Logging:** Detailed retry attempt logging for debugging
-
-### Health Check Startup Guard
-- **Prevents premature traffic routing:** Health checks return `503` until all infrastructure is initialized
-- **Initialization tracking:** Waits for PostgreSQL, MongoDB, RabbitMQ, and all background jobs/consumers
-- **Load balancer safety:** Ensures instances are fully ready before receiving production traffic
-- **Kubernetes ready:** Compatible with readinessProbe configurations
+The CI pipeline:
+- Runs linter and formatter checks
+- Runs all tests
+- Builds the project
+- Validates database migrations
+- Blocks destructive Prisma migrations unless the pull request carries the `allow-destructive-migration` label
 
 ## Contributing
 

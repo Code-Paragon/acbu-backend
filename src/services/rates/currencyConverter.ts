@@ -107,7 +107,7 @@ export async function convertLocalToUsd(
   const rateDecimal = new Decimal(localToAcbuRate);
 
   // Calculate ACBU equivalent
-  const acbuAmount = localAmountDecimal.dividedBy(rateDecimal);
+  const acbuAmount = localAmountDecimal.div(rateDecimal);
 
   // Get USD rate per ACBU
   const acbuUsdRate = new Decimal(latestRate.acbuUsd);
@@ -120,7 +120,7 @@ export async function convertLocalToUsd(
   }
 
   // Convert ACBU to USD
-  const usdAmount = acbuAmount.multipliedBy(acbuUsdRate);
+  const usdAmount = acbuAmount.mul(acbuUsdRate);
 
   // Return as number with precision
   return usdAmount.toNumber();
@@ -137,7 +137,11 @@ export async function convertLocalToUsd(
 export async function convertLocalToUsdWithPrecision(
   localAmount: string | number,
   currency: string,
-): Promise<{ usdAmount: number; originalAmount: Decimal; acbuEquivalent: Decimal }> {
+): Promise<{
+  usdAmount: number;
+  originalAmount: Decimal;
+  acbuEquivalent: Decimal;
+}> {
   // Validate currency is supported
   if (!CURRENCY_TO_RATE_FIELD[currency]) {
     throw new AppError(
@@ -176,7 +180,7 @@ export async function convertLocalToUsdWithPrecision(
   const rateDecimal = new Decimal(localToAcbuRate);
 
   // Calculate ACBU equivalent
-  const acbuAmount = localAmountDecimal.dividedBy(rateDecimal);
+  const acbuAmount = localAmountDecimal.div(rateDecimal);
 
   // Get USD rate per ACBU
   const acbuUsdRate = new Decimal(latestRate.acbuUsd);
@@ -189,7 +193,7 @@ export async function convertLocalToUsdWithPrecision(
   }
 
   // Convert ACBU to USD
-  const usdAmount = acbuAmount.multipliedBy(acbuUsdRate);
+  const usdAmount = acbuAmount.mul(acbuUsdRate);
 
   return {
     usdAmount: usdAmount.toNumber(),

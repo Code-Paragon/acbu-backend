@@ -23,6 +23,7 @@ import {
 import { enqueueUsdcConvertAndMint } from "../jobs/usdcConvertAndMintJob";
 import { AppError } from "../middleware/errorHandler";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
+import { logger } from "../config/logger";
 import {
   parseMonetaryString,
   decimalToContractNumber,
@@ -186,7 +187,12 @@ export async function mintFromUsdcInternal(
     return { transactionId: tx.id, acbuAmount: acbuNum };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("Soroban mint_from_usdc failed:", message);
+    logger.error("Soroban mint_from_usdc failed", {
+      message,
+      walletAddress,
+      userId,
+      organizationId,
+    });
     await prisma.transaction.update({
       where: { id: tx.id },
       data: {

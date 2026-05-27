@@ -1,12 +1,14 @@
 import {
   apiKeyRateLimiter,
   circuitBreaker,
+  createMongoRateLimitStore,
   fallbackMetrics,
   fallbackRateLimitStore,
   FALLBACK_MAX_REQUESTS_PER_IP,
 } from "./rateLimiter";
 import { cacheService } from "../utils/cache";
 import { logger } from "../config/logger";
+import { getMongoDB } from "../config/mongodb";
 
 // Mock dependencies
 jest.mock("../utils/cache", () => ({
@@ -22,6 +24,10 @@ jest.mock("../config/logger", () => ({
     error: jest.fn(),
     debug: jest.fn(),
   },
+}));
+
+jest.mock("../config/mongodb", () => ({
+  getMongoDB: jest.fn(),
 }));
 
 jest.mock("../config/env", () => ({
@@ -60,6 +66,123 @@ describe("Rate Limiter with Circuit Breaker", () => {
     (fallbackMetrics as any).fallbackActivations = 0;
     (fallbackMetrics as any).rejectionsInFallback = 0;
     (fallbackMetrics as any).lastFailureAt = null;
+  });
+
+  describe("Shared Mongo-backed store", () => {
+    it("should namespace limiter keys so instances do not share counters", async () => {
+      const findOneAndUpdate = jest.fn().mockResolvedValue({
+        value: {
+          key: "rate_limit:standard:192.168.1.100",
+          value: { count: 1 },
+          expiresAt: new Date("2026-01-01T00:01:00.000Z"),
+          updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+          namespace: "rate_limit:standard",
+        },
+      });
+      const findOne = jest.fn().mockResolvedValue(null);
+      const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+      const deleteOne = jest.fn().mockResolvedValue({ acknowledged: true });
+      const deleteMany = jest.fn().mockResolvedValue({ acknowledged: true });
+
+      (getMongoDB as jest.Mock).mockReturnValue({
+        collection: jest.fn(() => ({
+          findOneAndUpdate,
+          findOne,
+          updateOne,
+          deleteOne,
+          deleteMany,
+        })),
+      });
+
+      const standardStore = createMongoRateLimitStore("standard") as any;
+      const authStore = createMongoRateLimitStore("auth") as any;
+
+      standardStore.init({ windowMs: 60_000 } as any);
+      authStore.init({ windowMs: 15 * 60_000 } as any);
+
+      await standardStore.increment("192.168.1.100");
+      await authStore.increment("192.168.1.100");
+
+      expect(findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          key: "rate_limit:standard:192.168.1.100",
+        }),
+        expect.any(Object),
+        expect.objectContaining({ upsert: true, returnDocument: "after" }),
+      );
+      expect(findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          key: "rate_limit:auth:192.168.1.100",
+        }),
+        expect.any(Object),
+        expect.objectContaining({ upsert: true, returnDocument: "after" }),
+      );
+      expect((standardStore as any).localKeys).toBe(false);
+      expect((authStore as any).localKeys).toBe(false);
+    });
+
+    it("should read, reset, and delete shared limiter entries", async () => {
+      const findOneAndUpdate = jest.fn().mockResolvedValue({
+        value: {
+          key: "rate_limit:standard:203.0.113.10",
+          value: { count: 3 },
+          expiresAt: new Date("2026-01-01T00:01:00.000Z"),
+          updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+          namespace: "rate_limit:standard",
+        },
+      });
+      const findOne = jest
+        .fn()
+        .mockResolvedValueOnce({
+          key: "rate_limit:standard:203.0.113.10",
+          value: { count: 3 },
+          expiresAt: new Date("2026-01-01T00:01:00.000Z"),
+          updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+          namespace: "rate_limit:standard",
+        })
+        .mockResolvedValueOnce(null);
+      const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+      const deleteOne = jest.fn().mockResolvedValue({ acknowledged: true });
+      const deleteMany = jest.fn().mockResolvedValue({ acknowledged: true });
+
+      (getMongoDB as jest.Mock).mockReturnValue({
+        collection: jest.fn(() => ({
+          findOneAndUpdate,
+          findOne,
+          updateOne,
+          deleteOne,
+          deleteMany,
+        })),
+      });
+
+      const store = createMongoRateLimitStore("standard") as any;
+      store.init({ windowMs: 60_000 } as any);
+
+      const incremented = await store.increment("203.0.113.10");
+      expect(incremented.totalHits).toBe(3);
+      expect(incremented.resetTime).toBeInstanceOf(Date);
+
+      const hitInfo = await store.get("203.0.113.10");
+      expect(hitInfo).toEqual({
+        totalHits: 3,
+        resetTime: new Date("2026-01-01T00:01:00.000Z"),
+      });
+
+      await store.decrement("203.0.113.10");
+      await store.resetKey("203.0.113.10");
+      await store.resetAll();
+
+      expect(updateOne).toHaveBeenCalledWith(
+        { key: "rate_limit:standard:203.0.113.10" },
+        expect.any(Object),
+      );
+      expect(deleteOne).toHaveBeenCalledWith({
+        key: "rate_limit:standard:203.0.113.10",
+      });
+      expect(deleteMany).toHaveBeenCalledWith({
+        namespace: "rate_limit:standard",
+      });
+    });
   });
 
   describe("Normal Operation (Cache Available)", () => {

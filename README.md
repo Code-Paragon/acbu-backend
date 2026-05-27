@@ -226,6 +226,7 @@ The API provides three health check endpoints with different purposes:
 - **Status:** Returns `200` if all dependencies up, `503` if any down
 - **Purpose:** For Kubernetes readinessProbe configurations
 - **Probes:** PostgreSQL, MongoDB, RabbitMQ
+- **Startup Guard:** Returns `503` during application startup until all infrastructure connections and background jobs are fully initialized, preventing load balancers from routing traffic to partially-initialized instances
 - **Recommendation:** Use this endpoint in K8s deployment readinessProbe
 
 ### `/health/deep` - Deep Health Check
@@ -233,6 +234,7 @@ The API provides three health check endpoints with different purposes:
 - **Status:** Returns `200` if all dependencies up, `503` if any down
 - **Purpose:** Detailed dependency status for monitoring dashboards
 - **Response:** Full report with status of each dependency
+- **Startup Guard:** Returns `503` during application startup until all infrastructure connections and background jobs are fully initialized
 
 ### Kubernetes Configuration Example
 
@@ -256,17 +258,26 @@ livenessProbe:
   failureThreshold: 3
 ```
 
-## CI/CD
+## Security and Reliability Features
 
-GitHub Actions CI pipeline runs on:
-- Push to `main` or `develop` branches
-- Pull requests to `main` or `develop`
+### Webhook Signature Verification
+- **Flutterwave:** HMAC-SHA256 signature verification using `verif-hash` header
+- **Paystack:** HMAC-SHA512 signature verification using `x-paystack-signature` header
+- **Timing-safe comparison:** Prevents timing side-channel attacks
+- **Dev bypass:** Optional `WEBHOOK_SIGNATURE_BYPASS=true` for local development (never use in production)
+- **Production guard:** Boot validation rejects startup if webhook secrets are missing in production
 
-The CI pipeline:
-- Runs linter and formatter checks
-- Runs all tests
-- Builds the project
-- Validates database migrations
+### Stellar Transaction Retry Logic
+- **Sequence number drift handling:** Automatic retry for `tx_bad_seq` errors caused by concurrent transaction submissions
+- **Method:** `buildAndSubmitTransaction()` reloads account sequence and retries once before failing
+- **Use case:** Mint operations and other high-concurrency Stellar transactions
+- **Logging:** Detailed retry attempt logging for debugging
+
+### Health Check Startup Guard
+- **Prevents premature traffic routing:** Health checks return `503` until all infrastructure is initialized
+- **Initialization tracking:** Waits for PostgreSQL, MongoDB, RabbitMQ, and all background jobs/consumers
+- **Load balancer safety:** Ensures instances are fully ready before receiving production traffic
+- **Kubernetes ready:** Compatible with readinessProbe configurations
 
 ## Contributing
 

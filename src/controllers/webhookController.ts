@@ -98,8 +98,14 @@ export function verifyFlutterwaveSignature(
       signatureValid = false;
     }
   }
-  logger.warn("Flutterwave webhook signature mismatch");
-  throw new AppError("Invalid signature", 401, "UNAUTHORIZED");
+
+  if (!signatureValid) {
+    logger.warn("Flutterwave webhook signature mismatch");
+    throw new AppError("Invalid signature", 401, "UNAUTHORIZED");
+  }
+
+  logger.info("Flutterwave webhook signature verified");
+  next();
 }
 
 // ── Paystack Webhook ────────────────────────────────────────────────────────
@@ -170,8 +176,9 @@ export function verifyPaystackSignature(
     res.status(401).json({ error: "Invalid signature" });
     return;
   }
-  logger.warn("Paystack webhook signature mismatch");
-  throw new AppError("Invalid signature", 401, "UNAUTHORIZED");
+
+  logger.info("Paystack webhook signature verified");
+  next();
 }
 
 /**

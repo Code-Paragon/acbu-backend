@@ -2,23 +2,17 @@
  * Investment withdrawal job: at T+24h mark requests as 'available' and send "investment withdrawal ready" notification.
  */
 import { prisma } from "../config/database";
-import { publishInvestmentWithdrawalReady } from "../controllers/investmentController";
 import { logger } from "../config/logger";
+import { publishInvestmentWithdrawalReady } from "../services/investment/withdrawalNotificationService";
+import { getReadyInvestmentWithdrawalBatch } from "../services/investment/withdrawalTimingService";
 
 export async function processInvestmentWithdrawalAvailability(): Promise<void> {
-  const now = new Date();
-  const records = await prisma.investmentWithdrawalRequest.findMany({
-    where: {
-      status: { in: ["requested", "processing"] },
-      availableAt: { lte: now },
-    },
-    take: 100,
-  });
+  const { trustedNow, records } = await getReadyInvestmentWithdrawalBatch();
   for (const r of records) {
     try {
       await prisma.investmentWithdrawalRequest.update({
         where: { id: r.id },
-        data: { status: "available", notifiedAt: new Date() },
+        data: { status: "available", notifiedAt: trustedNow },
       });
       const amountAcbu = r.amountAcbu.toNumber();
       if (r.userId || r.organizationId) {
@@ -26,6 +20,7 @@ export async function processInvestmentWithdrawalAvailability(): Promise<void> {
           r.userId,
           amountAcbu,
           r.organizationId,
+          trustedNow,
         );
       }
       logger.info("Investment withdrawal marked available and notified", {

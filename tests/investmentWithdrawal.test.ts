@@ -1,8 +1,10 @@
+/// <reference types="jest" />
 import { processInvestmentWithdrawalAvailability } from "../src/jobs/investmentWithdrawalJob";
 
 // --- mock dependencies ---
 jest.mock("../src/config/database", () => ({
   prisma: {
+    $queryRaw: jest.fn(),
     investmentWithdrawalRequest: {
       findMany: jest.fn(),
       update: jest.fn(),
@@ -18,20 +20,23 @@ jest.mock("../src/config/logger", () => ({
   logger: { error: jest.fn(), info: jest.fn() },
 }));
 
-jest.mock("../src/controllers/investmentController", () => ({
+jest.mock("../src/services/investment/withdrawalNotificationService", () => ({
   publishInvestmentWithdrawalReady: jest.fn(),
 }));
 
 import { prisma } from "../src/config/database";
-import { publishInvestmentWithdrawalReady } from "../src/controllers/investmentController";
+import { publishInvestmentWithdrawalReady } from "../src/services/investment/withdrawalNotificationService";
 import { Decimal } from "@prisma/client/runtime/library";
 
+const mockQueryRaw = prisma.$queryRaw as jest.Mock;
 const mockFindMany = prisma.investmentWithdrawalRequest.findMany as jest.Mock;
 const mockUpdate = prisma.investmentWithdrawalRequest.update as jest.Mock;
 const mockPublish = publishInvestmentWithdrawalReady as jest.Mock;
+const trustedNow = new Date("2026-05-27T12:00:00.000Z");
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockQueryRaw.mockResolvedValue([{ trustedNow }]);
 });
 
 describe("processInvestmentWithdrawalAvailability", () => {
@@ -59,6 +64,7 @@ describe("processInvestmentWithdrawalAvailability", () => {
       userId,
       amountAcbu.toNumber(),
       null,
+      trustedNow,
     );
   });
 
@@ -82,7 +88,12 @@ describe("processInvestmentWithdrawalAvailability", () => {
 
     await processInvestmentWithdrawalAvailability();
 
-    expect(mockPublish).toHaveBeenCalledWith(null, amountAcbu.toNumber(), organizationId);
+    expect(mockPublish).toHaveBeenCalledWith(
+      null,
+      amountAcbu.toNumber(),
+      organizationId,
+      trustedNow,
+    );
   });
 
   it("should mark withdrawal as available with notifiedAt timestamp", async () => {
@@ -108,7 +119,21 @@ describe("processInvestmentWithdrawalAvailability", () => {
 
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: requestId },
-      data: { status: "available", notifiedAt: expect.any(Date) },
+      data: { status: "available", notifiedAt: trustedNow },
+    });
+  });
+
+  it("should query ready withdrawals using the database clock", async () => {
+    mockFindMany.mockResolvedValue([]);
+
+    await processInvestmentWithdrawalAvailability();
+
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: {
+        status: { in: ["requested", "processing"] },
+        availableAt: { lte: trustedNow },
+      },
+      take: 100,
     });
   });
 
@@ -164,8 +189,18 @@ describe("processInvestmentWithdrawalAvailability", () => {
     await processInvestmentWithdrawalAvailability();
 
     expect(mockPublish).toHaveBeenCalledTimes(2);
-    expect(mockPublish).toHaveBeenCalledWith(user1Id, amountAcbu.toNumber(), null);
-    expect(mockPublish).toHaveBeenCalledWith(null, amountAcbu.toNumber(), org1Id);
+    expect(mockPublish).toHaveBeenCalledWith(
+      user1Id,
+      amountAcbu.toNumber(),
+      null,
+      trustedNow,
+    );
+    expect(mockPublish).toHaveBeenCalledWith(
+      null,
+      amountAcbu.toNumber(),
+      org1Id,
+      trustedNow,
+    );
   });
 
   it("should continue processing when one request fails", async () => {
@@ -202,6 +237,11 @@ describe("processInvestmentWithdrawalAvailability", () => {
     // Should call publish only for the first request that succeeded
     // Second request's publish is not called because update failed
     expect(mockPublish).toHaveBeenCalledTimes(1);
-    expect(mockPublish).toHaveBeenCalledWith(userId, amountAcbu.toNumber(), null);
+    expect(mockPublish).toHaveBeenCalledWith(
+      userId,
+      amountAcbu.toNumber(),
+      null,
+      trustedNow,
+    );
   });
 });

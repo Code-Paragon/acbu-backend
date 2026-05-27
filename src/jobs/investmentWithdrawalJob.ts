@@ -4,16 +4,33 @@
 import { prisma } from "../config/database";
 import { logger } from "../config/logger";
 import { publishInvestmentWithdrawalReady } from "../services/investment/withdrawalNotificationService";
-import { getReadyInvestmentWithdrawalBatch } from "../services/investment/withdrawalTimingService";
+import {
+  getReadyInvestmentWithdrawalBatch,
+  READY_WITHDRAWAL_STATUSES,
+} from "../services/investment/withdrawalTimingService";
 
 export async function processInvestmentWithdrawalAvailability(): Promise<void> {
   const { trustedNow, records } = await getReadyInvestmentWithdrawalBatch();
   for (const r of records) {
     try {
-      await prisma.investmentWithdrawalRequest.update({
-        where: { id: r.id },
+      const transition = await prisma.investmentWithdrawalRequest.updateMany({
+        where: {
+          id: r.id,
+          status: { in: [...READY_WITHDRAWAL_STATUSES] },
+          availableAt: { lte: trustedNow },
+        },
         data: { status: "available", notifiedAt: trustedNow },
       });
+      if (transition.count === 0) {
+        logger.info(
+          "Investment withdrawal already processed or no longer ready",
+          {
+            requestId: r.id,
+          },
+        );
+        continue;
+      }
+
       const amountAcbu = r.amountAcbu.toNumber();
       if (r.userId || r.organizationId) {
         await publishInvestmentWithdrawalReady(

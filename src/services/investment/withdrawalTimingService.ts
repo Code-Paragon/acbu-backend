@@ -4,7 +4,7 @@ import { isBusinessWithdrawalAllowedDay } from "../../config/investment";
 
 const WITHDRAWAL_DELAY_HOURS = 24;
 const READY_WITHDRAWAL_BATCH_SIZE = 100;
-const READY_WITHDRAWAL_STATUSES = ["requested", "processing"] as const;
+export const READY_WITHDRAWAL_STATUSES = ["requested", "processing"] as const;
 
 type WithdrawalTimingRow = {
   requestedAt: Date;

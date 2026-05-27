@@ -7,7 +7,7 @@ jest.mock("../src/config/database", () => ({
     $queryRaw: jest.fn(),
     investmentWithdrawalRequest: {
       findMany: jest.fn(),
-      update: jest.fn(),
+      updateMany: jest.fn(),
     },
     user: {
       findUnique: jest.fn(),
@@ -30,13 +30,15 @@ import { Decimal } from "@prisma/client/runtime/library";
 
 const mockQueryRaw = prisma.$queryRaw as jest.Mock;
 const mockFindMany = prisma.investmentWithdrawalRequest.findMany as jest.Mock;
-const mockUpdate = prisma.investmentWithdrawalRequest.update as jest.Mock;
+const mockUpdateMany = prisma.investmentWithdrawalRequest
+  .updateMany as jest.Mock;
 const mockPublish = publishInvestmentWithdrawalReady as jest.Mock;
 const trustedNow = new Date("2026-05-27T12:00:00.000Z");
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockQueryRaw.mockResolvedValue([{ trustedNow }]);
+  mockUpdateMany.mockResolvedValue({ count: 1 });
 });
 
 describe("processInvestmentWithdrawalAvailability", () => {
@@ -55,8 +57,6 @@ describe("processInvestmentWithdrawalAvailability", () => {
         availableAt: new Date(now.getTime() - 1000),
       },
     ]);
-
-    mockUpdate.mockResolvedValue({});
 
     await processInvestmentWithdrawalAvailability();
 
@@ -83,8 +83,6 @@ describe("processInvestmentWithdrawalAvailability", () => {
         availableAt: new Date(now.getTime() - 1000),
       },
     ]);
-
-    mockUpdate.mockResolvedValue({});
 
     await processInvestmentWithdrawalAvailability();
 
@@ -113,12 +111,14 @@ describe("processInvestmentWithdrawalAvailability", () => {
       },
     ]);
 
-    mockUpdate.mockResolvedValue({});
-
     await processInvestmentWithdrawalAvailability();
 
-    expect(mockUpdate).toHaveBeenCalledWith({
-      where: { id: requestId },
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: requestId,
+        status: { in: ["requested", "processing"] },
+        availableAt: { lte: trustedNow },
+      },
       data: { status: "available", notifiedAt: trustedNow },
     });
   });
@@ -152,8 +152,6 @@ describe("processInvestmentWithdrawalAvailability", () => {
       },
     ]);
 
-    mockUpdate.mockResolvedValue({});
-
     await processInvestmentWithdrawalAvailability();
 
     expect(mockPublish).not.toHaveBeenCalled();
@@ -183,8 +181,6 @@ describe("processInvestmentWithdrawalAvailability", () => {
         availableAt: new Date(now.getTime() - 1000),
       },
     ]);
-
-    mockUpdate.mockResolvedValue({});
 
     await processInvestmentWithdrawalAvailability();
 
@@ -228,8 +224,8 @@ describe("processInvestmentWithdrawalAvailability", () => {
       },
     ]);
 
-    mockUpdate
-      .mockResolvedValueOnce({})
+    mockUpdateMany
+      .mockResolvedValueOnce({ count: 1 })
       .mockRejectedValueOnce(new Error("Update failed"));
 
     await processInvestmentWithdrawalAvailability();
@@ -243,5 +239,24 @@ describe("processInvestmentWithdrawalAvailability", () => {
       null,
       trustedNow,
     );
+  });
+
+  it("should not publish when another worker already transitioned the request", async () => {
+    const amountAcbu = new Decimal("100.00");
+    mockFindMany.mockResolvedValue([
+      {
+        id: "request-9",
+        userId: "user-333",
+        organizationId: null,
+        status: "requested",
+        amountAcbu,
+        availableAt: new Date(trustedNow.getTime() - 1000),
+      },
+    ]);
+    mockUpdateMany.mockResolvedValue({ count: 0 });
+
+    await processInvestmentWithdrawalAvailability();
+
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 });

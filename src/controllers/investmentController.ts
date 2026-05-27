@@ -155,9 +155,10 @@ export async function getInvestmentWithdrawRequests(
     const hasMore = list.length > limit;
     const page = hasMore ? list.slice(0, limit) : list;
     const nextCursor = hasMore ? page[page.length - 1].id : null;
+    type WithdrawalRequestRow = (typeof list)[number];
 
     res.status(200).json({
-      requests: page.map((r: typeof list[number]) => ({
+      requests: page.map((r: WithdrawalRequestRow) => ({
         id: r.id,
         amount_acbu: r.amountAcbu.toString(),
         status: r.status,

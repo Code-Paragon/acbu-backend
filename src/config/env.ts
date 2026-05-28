@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import { parseCorsOrigins } from "./corsOrigins";
 
 dotenv.config();
 
@@ -422,6 +423,6 @@ export const config = {
     maxTokensPerRequest: env.OPENAI_MAX_TOKENS_PER_REQUEST,
   },
 
-  // CORS
-  corsOrigin: process.env.CORS_ORIGIN?.split(",") || [],
+  // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)
+  corsOrigin: parseCorsOrigins(process.env.CORS_ORIGIN, env.NODE_ENV),
 };

@@ -52,6 +52,7 @@ export const errorHandler = (
     res.status(400).json({
       error: {
         code: "INVALID_JSON",
+        error_code: "INVALID_JSON",
         message: "Invalid JSON payload",
         details: { message: err.message },
       },
@@ -72,6 +73,7 @@ export const errorHandler = (
     res.status(err.statusCode).json({
       error: {
         code: err.code,
+        error_code: err.code,
         message: err.message,
         statusCode: err.statusCode,
         ...(err.details ? { details: err.details } : {}),
@@ -86,6 +88,7 @@ export const errorHandler = (
   res.status(500).json({
     error: {
       code: "INTERNAL_ERROR",
+      error_code: "INTERNAL_ERROR",
       message: "Internal server error",
     },
   });

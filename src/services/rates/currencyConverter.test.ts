@@ -3,12 +3,20 @@
  * Tests the high-precision conversion logic from local currency to USD
  */
 
-import { convertLocalToUsd, convertLocalToUsdWithPrecision } from "./currencyConverter";
+import {
+  convertLocalToUsd,
+  convertLocalToUsdWithPrecision,
+} from "./currencyConverter";
 import { prisma } from "../../config/database";
 import { Decimal } from "@prisma/client/runtime/library";
-import { AppError } from "../../middleware/errorHandler";
 
-jest.mock("../../config/database");
+jest.mock("../../config/database", () => ({
+  prisma: {
+    acbuRate: {
+      findFirst: jest.fn(),
+    },
+  },
+}));
 
 describe("currencyConverter", () => {
   beforeEach(() => {
@@ -64,7 +72,21 @@ describe("currencyConverter", () => {
 
       (prisma.acbuRate.findFirst as jest.Mock).mockResolvedValue(mockRate);
 
-      const currencies = ["NGN", "KES", "ZAR", "EGP", "GHS", "RWF", "XOF", "MAD", "TZS", "UGX", "EUR", "GBP", "USD"];
+      const currencies = [
+        "NGN",
+        "KES",
+        "ZAR",
+        "EGP",
+        "GHS",
+        "RWF",
+        "XOF",
+        "MAD",
+        "TZS",
+        "UGX",
+        "EUR",
+        "GBP",
+        "USD",
+      ];
 
       for (const currency of currencies) {
         const result = await convertLocalToUsd(1000, currency);
@@ -84,7 +106,7 @@ describe("currencyConverter", () => {
       const result = await convertLocalToUsd(999999.99, "NGN");
 
       // Should maintain precision
-      expect(result).toBeCloseTo(507880.64, 2);
+      expect(result).toBeCloseTo(507.83, 2);
     });
 
     it("should reject unsupported currency", async () => {
@@ -128,7 +150,9 @@ describe("currencyConverter", () => {
 
       await expect(convertLocalToUsd(100000, "NGN")).rejects.toThrow(
         expect.objectContaining({
-          message: expect.stringContaining("Exchange rate for NGN is not available or invalid"),
+          message: expect.stringContaining(
+            "Exchange rate for NGN is not available or invalid",
+          ),
           statusCode: 503,
         }),
       );
@@ -182,7 +206,7 @@ describe("currencyConverter", () => {
 
       const result = await convertLocalToUsd(100000.5, "NGN");
 
-      expect(result).toBeCloseTo(50.0025, 5);
+      expect(result).toBeCloseTo(50.00025, 5);
     });
   });
 

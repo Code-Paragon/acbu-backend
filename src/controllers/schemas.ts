@@ -4,7 +4,7 @@
  * and provides a mapping for OpenAPI drift testing
  */
 
-import { ZodSchema } from "zod";
+import { z, ZodSchema } from "zod";
 
 // Auth Controller
 import {
@@ -82,7 +82,7 @@ export const routeSchemas: Record<string, ZodSchema> = {
   "POST /v1/auth/signup": signupSchema,
   "POST /v1/auth/signin": signinSchema,
   "POST /v1/auth/signin/verify-2fa": verify2faSchema,
-  "POST /v1/auth/signout": signinSchema, // Requires auth but no body schema
+  "POST /v1/auth/signout": z.object({}), // No body schema needed
 
   // Transfer endpoints
   "POST /v1/transfers": createTransferSchema,
@@ -107,22 +107,22 @@ export const routeSchemas: Record<string, ZodSchema> = {
   "POST /v1/mint/deposit": depositBodySchema,
 
   // Burn endpoints
-  "POST /v1/burn": burnBodySchema,
+  "POST /v1/burn/acbu": burnBodySchema,
 
   // Recovery endpoints
   "POST /v1/recovery/unlock": unlockAppSchema,
-  "POST /v1/recovery/verify": verifyRecoveryOtpSchema,
+  "POST /v1/recovery/unlock/verify": verifyRecoveryOtpSchema,
 
   // Salary endpoints
   "POST /v1/salary/disburse": postSalaryDisburseSchema,
   "POST /v1/salary/schedule": postSalaryScheduleSchema,
 
   // Investment endpoints
-  "POST /v1/investment/request": investmentRequestSchema,
-  "GET /v1/investment/withdraw-requests": getWithdrawRequestsQuerySchema,
+  "POST /v1/investment/withdraw/request": investmentRequestSchema,
+  "GET /v1/investment/withdraw/requests": getWithdrawRequestsQuerySchema,
 
   // Onramp endpoints
-  "POST /v1/onramp": onrampBodySchema,
+  "POST /v1/onramp/register": onrampBodySchema,
 };
 
 /**

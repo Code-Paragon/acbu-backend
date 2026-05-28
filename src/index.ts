@@ -12,7 +12,6 @@ import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
-import { versioningMiddleware } from "./middleware/versioning";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
@@ -60,11 +59,14 @@ app.use(requestLogger);
 // Rate limiting
 app.use(standardRateLimiter);
 
-// Versioning headers (X-API-Version, Deprecation, Sunset)
-app.use(versioningMiddleware);
-
-// API Documentation
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// API Documentation — disabled in production to prevent endpoint enumeration (#274)
+if (config.nodeEnv !== "production") {
+  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  // Raw JSON spec for tooling / CI spec-drift checks (#292)
+  app.get("/api-docs.json", (_req, res) => {
+    res.json(swaggerSpec);
+  });
+}
 
 // Routes
 app.use(`/api/${config.apiVersion}`, routes);
@@ -165,6 +167,15 @@ async function startServer() {
         await import("./jobs/investmentWithdrawalJob");
       await startInvestmentWithdrawalScheduler();
 
+      // Start yield accrual scheduler (run once at startup to seed accruals)
+      const { startYieldAccrualScheduler } = await import("./jobs/yieldAccrualJob");
+      await startYieldAccrualScheduler();
+
+      // Start weekly weight drift audit job (Monday 00:00 UTC)
+      const { startWeightDriftAuditScheduler } =
+        await import("./jobs/weightDriftAuditJob");
+      await startWeightDriftAuditScheduler();
+
       // Salary schedule: trigger recurring salary payments
       const { startSalaryScheduleScheduler } =
         await import("./jobs/salaryScheduleJob");
@@ -190,14 +201,20 @@ async function startServer() {
     const { eventListener } = await import("./services/stellar/eventListener");
     void eventListener.start();
 
+    // Mark application as ready for health checks
+    const { markStartupComplete } = await import("./services/health/healthService");
+    markStartupComplete();
+
     // Start HTTP server
     app.listen(config.port, () => {
       logger.info(`Server running on port ${config.port}`);
       logger.info(`Environment: ${config.nodeEnv}`);
       logger.info(`API Version: ${config.apiVersion}`);
-      logger.info(
-        `API Documentation: http://localhost:${config.port}/api-docs`,
-      );
+      if (config.nodeEnv !== "production") {
+        logger.info(
+          `API Documentation: http://localhost:${config.port}/api-docs`,
+        );
+      }
     });
   } catch (error) {
     logger.error("Failed to start server", error);
@@ -216,6 +233,9 @@ const shutdown = async () => {
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-startServer();
+if (require.main === module) {
+  void startServer();
+}
 
+export { startServer };
 export default app;

@@ -1,4 +1,5 @@
 import { Response, NextFunction } from "express";
+import type { Prisma } from "@prisma/client";
 import { AuthRequest } from "../middleware/auth";
 import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";
@@ -44,7 +45,13 @@ export async function exportData(
     }
 
     // Omit sensitive backend secrets like encrypted keys and passcode hashes before export
-    const { passcodeHash, encryptedStellarSecret, keyEncryptionHint, totpSecretEncrypted, ...safeUser } = user;
+    const {
+      passcodeHash,
+      encryptedStellarSecret,
+      keyEncryptionHint,
+      totpSecretEncrypted,
+      ...safeUser
+    } = user;
 
     res.json({
       export_timestamp: new Date().toISOString(),
@@ -70,7 +77,7 @@ export async function deleteAccount(
       throw new AppError("User-scoped API key required", 401);
     }
 
-    await prisma.$transaction(async (tx: any) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. Delete associated sensitive records
       await tx.apiKey.deleteMany({ where: { userId } });
       await tx.otpChallenge.deleteMany({ where: { userId } });

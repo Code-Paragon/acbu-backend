@@ -4,23 +4,11 @@ import bcrypt from "bcryptjs";
 import { AppError } from "./errorHandler";
 import { logger } from "../config/logger";
 import jwt from "jsonwebtoken";
+import { PermissionScopeEnum, PermissionScope } from "../types/permissions";
 
 export type Audience = "retail" | "business" | "government";
 export type UserTier = "free" | "verified" | "sme" | "enterprise";
 export type ApiKeyType = "USER_KEY" | "ADMIN_KEY" | "BREAK_GLASS_KEY";
-export type PermissionScope =
-  | "p2p:read"
-  | "p2p:write"
-  | "p2p:admin"
-  | "sme:read"
-  | "sme:write"
-  | "sme:admin"
-  | "gateway:read"
-  | "gateway:write"
-  | "gateway:admin"
-  | "enterprise:read"
-  | "enterprise:write"
-  | "enterprise:admin";
 const API_KEY_PREFIX = "acbu";
 const API_KEY_LOOKUP_LENGTH = 12;
 const API_KEY_SECRET_LENGTH = 64;
@@ -38,7 +26,7 @@ export interface AuthRequest extends Request {
     createdByUserId: string | null;
     emergencyReason: string | null;
     emergencyExpiresAt: Date | null;
-    permissions: string[];
+    permissions: PermissionScope[];
     rateLimit: number;
   };
   /** Set by audience-specific routes (e.g. /retail, /business, /government) for limits and behaviour. */
@@ -52,18 +40,28 @@ export interface AuthRequest extends Request {
  * @param permissions - Raw permissions from database (Json type)
  * @returns Array of validated permission strings, or empty array if invalid
  */
-function validatePermissions(permissions: unknown): string[] {
-  if (!permissions) {
+function validatePermissions(permissions: unknown): PermissionScope[] {
+  if (!Array.isArray(permissions)) {
+    if (permissions != null) {
+      logger.warn("Invalid permissions in API key record (not an array)", {
+        raw: permissions,
+      });
+    }
     return [];
   }
-
-  if (Array.isArray(permissions)) {
-    return permissions.every((p) => typeof p === "string")
-      ? (permissions as string[])
-      : [];
+  const valid: PermissionScope[] = [];
+  const invalid: unknown[] = [];
+  for (const p of permissions) {
+    const r = PermissionScopeEnum.safeParse(p);
+    if (r.success) valid.push(r.data);
+    else invalid.push(p);
   }
-
-  return [];
+  if (invalid.length > 0) {
+    logger.warn("Dropped invalid permission scopes from API key record", {
+      invalid,
+    });
+  }
+  return valid;
 }
 
 function parseApiKey(
@@ -216,7 +214,7 @@ export async function hashApiKey(secret: string): Promise<string> {
  */
 export async function generateApiKey(
   userId?: string,
-  permissions: string[] = [],
+  permissions: PermissionScope[] = [],
   options?: {
     organizationId?: string | null;
     keyType?: ApiKeyType;

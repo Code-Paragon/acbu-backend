@@ -1,6 +1,19 @@
 import swaggerJsdoc from "swagger-jsdoc";
 import { config } from "./env";
 
+/**
+ * Swagger / OpenAPI spec configuration.
+ *
+ * Security (#274): The spec is generated at startup but the /api-docs UI is
+ * only mounted when NODE_ENV !== "production" (enforced in src/index.ts).
+ * This prevents internal endpoint structure from being exposed to attackers
+ * in production deployments.
+ *
+ * If you need to share the spec with internal tooling in production, serve
+ * the raw JSON behind an authenticated admin endpoint instead of the public
+ * swagger-ui-express mount.
+ */
+
 const options: swaggerJsdoc.Options = {
   definition: {
     openapi: "3.0.0",

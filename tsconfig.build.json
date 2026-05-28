@@ -1,6 +1,5 @@
 {
   "extends": "./tsconfig.json",
-  "ignoreDeprecations": "5.0",
   "compilerOptions": {
     "declaration": false,
     "declarationMap": false,

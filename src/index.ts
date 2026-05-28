@@ -1,7 +1,11 @@
 import { initTracing } from "./config/tracing";
 initTracing();
 
-import express from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import helmet from "helmet";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
@@ -10,7 +14,7 @@ import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
-import { errorHandler } from "./middleware/errorHandler";
+import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
@@ -34,9 +38,30 @@ app.use(
 app.use(corsMiddleware);
 app.use(express.urlencoded({ extended: true }));
 
+// ── Webhook Content-Type validation ────────────────────────────────────────────
+// Must check Content-Type BEFORE raw body parser, since non-JSON bodies would
+// bypass parsing and cause unexpected behavior in signature verification.
+function validateWebhookContentType(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void {
+  if (!req.is("application/json")) {
+    return next(
+      new AppError(
+        "Content-Type must be application/json",
+        415,
+        "INVALID_CONTENT_TYPE",
+      ),
+    );
+  }
+  next();
+}
+
 // Webhooks need raw body for signature verification; mount before json()
 app.use(
   `/${config.apiVersion}/webhooks`,
+  validateWebhookContentType,
   express.raw({ type: "application/json" }),
   (req: express.Request, res: express.Response, next) => {
     const raw = req.body as Buffer;
@@ -168,7 +193,8 @@ async function startServer() {
       await startInvestmentWithdrawalScheduler();
 
       // Start yield accrual scheduler (run once at startup to seed accruals)
-      const { startYieldAccrualScheduler } = await import("./jobs/yieldAccrualJob");
+      const { startYieldAccrualScheduler } =
+        await import("./jobs/yieldAccrualJob");
       await startYieldAccrualScheduler();
 
       // Start weekly weight drift audit job (Monday 00:00 UTC)
@@ -202,7 +228,8 @@ async function startServer() {
     void eventListener.start();
 
     // Mark application as ready for health checks
-    const { markStartupComplete } = await import("./services/health/healthService");
+    const { markStartupComplete } =
+      await import("./services/health/healthService");
     markStartupComplete();
 
     // Start HTTP server

@@ -33,6 +33,19 @@ function sanitizeForLog(err: Error, req: Request) {
   };
 }
 
+function summarizeErrorDetails(details: unknown): unknown {
+  if (!details) return undefined;
+  if (typeof details === "string") return "REDACTED_STRING_DETAILS";
+  if (Array.isArray(details)) return { type: "array", count: details.length };
+  if (typeof details === "object") {
+    return {
+      type: "object",
+      keys: Object.keys(details as Record<string, unknown>).slice(0, 10),
+    };
+  }
+  return "REDACTED_NON_OBJECT_DETAILS";
+}
+
 export const errorHandler = (
   err: Error | AppError | SyntaxError,
   req: Request,
@@ -58,7 +71,7 @@ export const errorHandler = (
       code: err.code,
       path: req.path,
       method: req.method,
-      details: err.details,
+      details: summarizeErrorDetails(err.details),
     });
 
     res.status(err.statusCode).json({

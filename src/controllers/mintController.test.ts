@@ -15,6 +15,13 @@ jest.mock("../config/database", () => ({
   },
 }));
 
+jest.mock("../services/contracts", () => ({
+  acbuMintingService: {
+    mintFromBasket: jest.fn(),
+    mintFromUsdc: jest.fn(),
+  },
+}));
+
 const makeRes = () => {
   const res = { status: jest.fn(), json: jest.fn() } as unknown as Response;
   (res.status as jest.Mock).mockReturnValue(res);

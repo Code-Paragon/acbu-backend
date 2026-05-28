@@ -29,6 +29,14 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_ORG_MONTHLY_BUDGET_USD: z.coerce.number().default(50),
   OPENAI_MAX_TOKENS_PER_REQUEST: z.coerce.number().default(2000),
+  LOG_LEVEL: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(
+      z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]),
+    )
+    .default("info"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -82,7 +90,7 @@ export const config = {
   ),
 
   // Logging
-  logLevel: process.env.LOG_LEVEL || "info",
+  logLevel: env.LOG_LEVEL,
   logFile: process.env.LOG_FILE || "logs/app.log",
 
   // Fintech APIs

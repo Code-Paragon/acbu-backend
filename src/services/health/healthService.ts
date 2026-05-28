@@ -2,6 +2,7 @@ import { prisma } from "../../config/database";
 import { getMongoDB } from "../../config/mongodb";
 import { getRabbitMQChannel } from "../../config/rabbitmq";
 import { logger } from "../../config/logger";
+import { eventListenerHealth } from "../stellar/eventListener";
 
 const TIMEOUT_MS = 2000;
 
@@ -20,6 +21,7 @@ export interface HealthReport {
     postgres: HealthDetail;
     mongodb: HealthDetail;
     rabbitmq: HealthDetail;
+    sorobanEventListener: HealthDetail;
   };
 }
 
@@ -77,15 +79,21 @@ export async function getHealthReport(): Promise<HealthReport> {
     checkRabbitMQ(),
   ]);
 
+  const sorobanEventListener: HealthDetail = {
+    status: eventListenerHealth.status,
+    error: eventListenerHealth.lastError ?? undefined,
+  };
+
   const allUp =
     postgres.status === "up" &&
     mongodb.status === "up" &&
-    rabbitmq.status === "up";
+    rabbitmq.status === "up" &&
+    sorobanEventListener.status === "up";
 
   return {
     status: allUp ? "up" : "down",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    details: { postgres, mongodb, rabbitmq },
+    details: { postgres, mongodb, rabbitmq, sorobanEventListener },
   };
 }

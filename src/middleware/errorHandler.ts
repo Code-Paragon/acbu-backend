@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../config/logger";
+import { ErrorCodes } from "../types/errorCodes";
 
 export class AppError extends Error {
   statusCode: number;
@@ -16,7 +17,9 @@ export class AppError extends Error {
     super(message);
     this.statusCode = statusCode;
     this.code =
-      typeof codeOrDetails === "string" ? codeOrDetails : "APP_ERROR";
+      typeof codeOrDetails === "string"
+        ? codeOrDetails
+        : ErrorCodes.BAD_REQUEST;
     this.details =
       typeof codeOrDetails === "string" ? details : codeOrDetails;
     this.isOperational = true;

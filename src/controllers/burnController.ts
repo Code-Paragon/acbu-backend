@@ -24,6 +24,7 @@ import {
   calculateFee,
 } from "../utils/decimalUtils";
 import { AppError } from "../middleware/errorHandler";
+import { getLatestAcbuRate } from "../services/rates/acbuRateCache";
 
 /** Best-effort stringify for Decimal-like values in Prisma models. */
 function toNullableStringDecimal(v: unknown): string | null {
@@ -111,12 +112,7 @@ export async function burnAcbu(
     const feeAcbuDecimal = calculateFee(acbuDecimal, burnFeeBps);
     const acbuAmount7 = decimalToContractNumber(acbuDecimal).toString();
 
-    const acbuRateRecord = await prisma.acbuRate.findFirst({
-      orderBy: { timestamp: "desc" },
-    });
-    if (!acbuRateRecord) {
-      throw new Error("ACBU rates not available");
-    }
+    const acbuRateRecord = await getLatestAcbuRate();
     const rateKey =
       `acbu${currency.charAt(0).toUpperCase() + currency.slice(1).toLowerCase()}` as keyof typeof acbuRateRecord;
     const acbuPerLocal = acbuRateRecord[rateKey];

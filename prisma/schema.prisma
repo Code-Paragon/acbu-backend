@@ -290,6 +290,7 @@ model Webhook {
 model OnRampSwap {
   id             String    @id @default(uuid()) @db.Uuid
   userId         String    @map("user_id") @db.Uuid
+  idempotencyKey String?   @unique @map("idempotency_key") @db.VarChar(255)
   stellarAddress String    @map("stellar_address") @db.VarChar(56)
   source         String    @default("xlm_deposit") @db.VarChar(20) // 'usdc_deposit' | 'xlm_deposit'
   xlmAmount      Decimal?  @map("xlm_amount") @db.Decimal(20, 7)

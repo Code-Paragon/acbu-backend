@@ -4,6 +4,7 @@ import { AuthRequest } from "../middleware/auth";
 import { createTransfer } from "../services/transfer/transferService";
 import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";
+import { extractIdempotencyKey } from "../utils/idempotency";
 
 export const createTransferSchema = z.object({
   to: z.string().min(1, "to is required"),
@@ -36,11 +37,13 @@ export async function postTransfers(
       throw new AppError("User-scoped API key required", 401);
     }
     const body = createTransferSchema.parse(req.body);
+    const idempotencyKey = extractIdempotencyKey(req);
     const result = await createTransfer(
       {
         senderUserId: userId,
         to: body.to.trim(),
         amountAcbu: body.amount_acbu.trim(),
+        idempotencyKey,
       },
       {
         // Legacy behavior: without hash, tx stays pending until key/worker is wired.

@@ -168,7 +168,6 @@ model OracleRate {
   timestamp           DateTime @default(now()) @db.Timestamp(6)
 
   @@unique([currency, timestamp])
-  @@index([currency], map: "idx_oracle_rates_currency")
   @@index([timestamp], map: "idx_oracle_rates_timestamp")
   @@map("oracle_rates")
 }

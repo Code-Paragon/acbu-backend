@@ -22,6 +22,7 @@ import {
 } from "../services/limits/limitsService";
 import { enqueueUsdcConvertAndMint } from "../jobs/usdcConvertAndMintJob";
 import { AppError } from "../middleware/errorHandler";
+import { ErrorCodes } from "../types/errorCodes";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
 import { logger } from "../config/logger";
 import {
@@ -60,7 +61,12 @@ export async function mintFromUsdc(
     }
     const parsed = usdcBodySchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new AppError("Invalid request", 400, "VALIDATION_ERROR", parsed.error.flatten());
+      throw new AppError(
+        "Invalid request",
+        400,
+        ErrorCodes.VALIDATION_ERROR,
+        parsed.error.flatten(),
+      );
     }
 
     const { usdc_amount, wallet_address } = parsed.data;
@@ -227,17 +233,19 @@ export async function depositFromBasketCurrency(
   try {
     const parsed = depositBodySchema.safeParse(req.body);
     if (!parsed.success) {
-      res
-        .status(400)
-        .json({ error: "Invalid request", details: parsed.error.flatten() });
-      return;
+      throw new AppError(
+        "Invalid request",
+        400,
+        ErrorCodes.VALIDATION_ERROR,
+        parsed.error.flatten(),
+      );
     }
     const { currency, amount, wallet_address } = parsed.data;
     if (isForbiddenDepositCurrency(currency)) {
       throw new AppError(
         `Deposits in ${currency} are not allowed. Only basket (pool) currencies are accepted: ${BASKET_CURRENCIES.join(", ")}. For USDC, use the on-ramp (swap USDC→XLM via Stellar LP).`,
         400,
-        "DEPOSIT_ONLY_BASKET_CURRENCIES",
+        ErrorCodes.DEPOSIT_ONLY_BASKET_CURRENCIES,
         { deposit_currencies_allowed: [...BASKET_CURRENCIES] },
       );
     }
@@ -245,7 +253,7 @@ export async function depositFromBasketCurrency(
       throw new AppError(
         `Currency ${currency} is not in the basket. Allowed: ${BASKET_CURRENCIES.join(", ")}.`,
         400,
-        "INVALID_CURRENCY",
+        ErrorCodes.INVALID_CURRENCY,
         { deposit_currencies_allowed: [...BASKET_CURRENCIES] },
       );
     }
@@ -264,7 +272,7 @@ export async function depositFromBasketCurrency(
       throw new AppError(
         "New minting is temporarily paused (reserve ratio below 102%).",
         503,
-        "CIRCUIT_BREAKER",
+        ErrorCodes.CIRCUIT_BREAKER,
       );
     }
 

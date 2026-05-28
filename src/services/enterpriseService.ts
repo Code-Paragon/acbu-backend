@@ -57,7 +57,7 @@ function parseCsvBuffer(buffer: Buffer): { headers: string[]; rows: Record<strin
     throw new AppError(parsed.errors[0]?.message || "CSV parsing failed", 400);
   }
 
-  const headers = (parsed.meta.fields ?? []).map((header) => header.trim());
+  const headers = (parsed.meta.fields ?? []).map((header: string) => header.trim());
   if (headers.length === 0) {
     throw new AppError("CSV file is empty or has no headers", 400);
   }

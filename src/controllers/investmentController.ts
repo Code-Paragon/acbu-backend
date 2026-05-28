@@ -102,7 +102,7 @@ export async function postInvestmentWithdrawRequest(
 
 const WITHDRAWAL_STATUSES = ["requested", "available", "completed", "cancelled"] as const;
 
-const getWithdrawRequestsQuerySchema = z.object({
+export const getWithdrawRequestsQuerySchema = z.object({
   limit: z
     .string()
     .optional()

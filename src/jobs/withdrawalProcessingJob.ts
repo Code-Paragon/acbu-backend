@@ -110,8 +110,7 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
           return;
         }
 
-        const providerName =
-          { NGN: "paystack", RWF: "mtn_momo" }[currency] ?? "flutterwave";
+        const providerName = ({ NGN: "paystack", RWF: "mtn_momo" } as Record<string, string>)[currency] ?? "flutterwave";
 
         logFinancialEvent({
           event: "withdrawal.processing",
@@ -140,8 +139,8 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
             );
           } catch (err) {
             logger.warn("Primary provider failed, attempting failover", { transactionId, error: err });
-            // Simulate outage for primary, try next
-            provider = await router.getProvider(currency, { simulateOutageFor: (router.currencyProviders?.[currency]?.[0] ?? null) });
+            // Simulate outage for primary, try next (no access to private router internals)
+            provider = await router.getProvider(currency, { simulateOutageFor: undefined });
             usedProviderId = provider.constructor?.name || "unknown";
             result = await provider.disburseFunds(
               amount,

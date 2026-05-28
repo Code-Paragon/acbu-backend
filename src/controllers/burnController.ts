@@ -11,6 +11,7 @@ import { acbuBurningService } from "../services/contracts";
 import { stellarClient } from "../services/stellar/client";
 import { AuthRequest } from "../middleware/auth";
 import { Decimal } from "@prisma/client/runtime/library";
+import { AppError } from "../middleware/errorHandler";
 import { logAudit } from "../services/audit";
 import {
   checkWithdrawalLimits,
@@ -146,21 +147,19 @@ export async function burnAcbu(
       req.apiKey?.organizationId ?? null,
     );
 
-    const tx = await prisma.transaction.create({
-      data: {
-        userId: req.apiKey?.userId ?? undefined,
-        organizationId: req.apiKey?.organizationId ?? undefined,
-        type: "burn",
-        status: "pending",
-        acbuAmountBurned: new Decimal(acbuNum),
-        localCurrency: currency,
-        localAmount: new Decimal(localNum),
-        recipientAccount: recipient_account as object,
-        fee: new Decimal(feeAcbu),
-        rateSnapshot: {
-          acbu_ngn: null,
-          timestamp: new Date().toISOString(),
-        },
+    const createData = {
+      userId: req.apiKey?.userId ?? undefined,
+      organizationId: req.apiKey?.organizationId ?? undefined,
+      type: "burn",
+      status: "pending",
+      acbuAmountBurned: new Decimal(acbuNum),
+      localCurrency: currency,
+      localAmount: new Decimal(localNum),
+      recipientAccount: recipient_account as object,
+      fee: new Decimal(feeAcbu),
+      rateSnapshot: {
+        acbu_ngn: null,
+        timestamp: new Date().toISOString(),
       },
       blockchainTxHash:
         burningEnabled && blockchain_tx_hash ? blockchain_tx_hash : undefined,

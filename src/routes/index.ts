@@ -29,6 +29,7 @@ import investmentRoutes from "./investmentRoutes";
 import fiatRoutes from "./fiatRoutes";
 import configRoutes from "./configRoutes";
 import kycRoutes from "./kycRoutes";
+import complianceRoutes from "./complianceRoutes";
 
 const router: ReturnType<typeof Router> = Router();
 

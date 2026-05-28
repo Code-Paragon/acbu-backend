@@ -11,6 +11,7 @@ import { enqueueXlmToAcbu } from "../jobs/xlmToAcbuJob";
 import { AppError } from "../middleware/errorHandler";
 import { isValidStellarAddress } from "../utils/stellar";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
+import { logFinancialEvent } from "../config/logger";
 
 export const bodySchema = z.object({
   stellar_address: z

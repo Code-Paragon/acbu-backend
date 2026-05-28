@@ -2,6 +2,7 @@
  * GET /v1/transactions/:id - Get transaction by id.
  */
 import { Response, NextFunction } from "express";
+import { AppError } from "../middleware/errorHandler";
 import { z } from "zod";
 import { prisma } from "../config/database";
 import { AuthRequest } from "../middleware/auth";
@@ -31,6 +32,7 @@ export async function listMyTransactions(
       throw new AppError("User-scoped API key required", 401, "UNAUTHORIZED");
     }
 
+    const query = listTransactionsQuerySchema.safeParse(req.query as Record<string, unknown>);
     if (!query.success) {
       throw new AppError("Invalid query parameters", 400, "VALIDATION_ERROR", query.error.flatten());
     }

@@ -120,10 +120,10 @@ export async function convertLocalToUsd(
   }
 
   // Convert ACBU to USD
-  const usdAmount = acbuAmount.multipliedBy(acbuUsdRate);
+  const usdAmount = acbuAmount.toNumber() * acbuUsdRate.toNumber();
 
   // Return as number with precision
-  return usdAmount.toNumber();
+  return Number(usdAmount);
 }
 
 /**
@@ -189,10 +189,10 @@ export async function convertLocalToUsdWithPrecision(
   }
 
   // Convert ACBU to USD
-  const usdAmount = acbuAmount.multipliedBy(acbuUsdRate);
+  const usdAmount = acbuAmount.toNumber() * acbuUsdRate.toNumber();
 
   return {
-    usdAmount: usdAmount.toNumber(),
+    usdAmount: Number(usdAmount),
     originalAmount: localAmountDecimal,
     acbuEquivalent: acbuAmount,
   };

@@ -14,7 +14,7 @@ import { stellarClient } from "../stellar/client";
 import { getBaseFee } from "../stellar/feeManager";
 import { resolveRecipientToStellarAddress } from "../recipient/recipientResolver";
 
-import { logger } from "../../config/logger";
+import { logger, logFinancialEvent } from "../../config/logger";
 import type {
   CreateTransferParams,
   CreateTransferOptions,
@@ -117,8 +117,8 @@ export async function createTransfer(
   logFinancialEvent({
     event: "transfer.initiated",
     status: "pending",
-    transactionId: tx.id,
     idempotencyKey: tx.id,
+    transactionId: tx.id,
     userId: senderUserId,
     accountId: sender.stellarAddress ?? senderUserId,
     destinationId: recipientAddress,

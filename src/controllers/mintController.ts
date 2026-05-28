@@ -22,6 +22,7 @@ import {
 } from "../services/limits/limitsService";
 import { enqueueUsdcConvertAndMint } from "../jobs/usdcConvertAndMintJob";
 import { AppError } from "../middleware/errorHandler";
+import { convertLocalToUsd } from "../services/rates/currencyConverter";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
 import { logFinancialEvent } from "../config/logger";
 
@@ -304,10 +305,10 @@ export async function depositFromBasketCurrency(
     // 2. Calculate ACBU equivalent: localAmount / localRate
     // 3. Convert to USD: acbuAmount * acbuUsdRate
     const amountUsd = await convertLocalToUsd(amountNum, currency);
-    
+
     await checkDepositLimits(
       audience,
-      amountUsdPlaceholder,
+      amountUsd,
       userId,
       req.apiKey?.organizationId ?? null,
     );

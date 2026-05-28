@@ -78,6 +78,9 @@ router.post("/usdc", mintFromUsdc);
  *                 type: string
  *               wallet_address:
  *                 type: string
+ *               fintech_tx_id:
+ *                 type: string
+ *                 description: Optional external payment transaction ID used for idempotency and duplicate detection
  *     responses:
  *       202:
  *         description: Deposit request accepted

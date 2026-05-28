@@ -12,6 +12,19 @@ export interface BruteStatus {
 }
 
 export class AuthBruteGuard {
+  private maskIdentifier(identifier: string): string {
+    if (!identifier) return "unknown";
+    if (identifier.includes("@")) {
+      const [local, domain] = identifier.split("@");
+      const safeLocal = local.length <= 2 ? `${local[0] ?? "*"}*` : `${local.slice(0, 2)}***`;
+      return `${safeLocal}@${domain ?? "***"}`;
+    }
+    if (identifier.startsWith("+")) {
+      return `${identifier.slice(0, 4)}****${identifier.slice(-2)}`;
+    }
+    return `${identifier.slice(0, 2)}***`;
+  }
+
   /**
    * Record a failed attempt for an identifier (username/email/phone) and/or IP.
    */
@@ -24,7 +37,10 @@ export class AuthBruteGuard {
       setOnInsert: { firstAttemptAt: new Date() },
     });
 
-    logger.warn("Auth failure recorded", { identifier, ip });
+    logger.warn("Auth failure recorded", {
+      identifier: this.maskIdentifier(identifier),
+      ip,
+    });
   }
 
   /**

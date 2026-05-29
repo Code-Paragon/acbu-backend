@@ -20,6 +20,7 @@ import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
 
 const app: express.Express = express();
+const MAX_REQUEST_BODY_SIZE = "1mb";
 
 // Security middleware
 app.use(
@@ -39,7 +40,7 @@ app.use(corsMiddleware);
 // Compress all JSON/text responses to reduce bandwidth on large payloads
 app.use(compression());
 
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
 
 // Webhooks need raw body for signature verification; mount before json()
 app.use(
@@ -58,7 +59,20 @@ app.use(
   },
   webhookRoutes,
 );
-app.use(express.json());
+app.use(express.json({ limit: MAX_REQUEST_BODY_SIZE }));
+
+app.use((err: Error & { type?: string }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err?.type === "entity.too.large") {
+    res.status(413).json({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Request body exceeds maximum allowed size",
+      },
+    });
+    return;
+  }
+  next(err);
+});
 
 // Logging
 app.use(requestLogger);

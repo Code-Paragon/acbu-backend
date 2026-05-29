@@ -25,6 +25,10 @@ const MAX_REQUEST_BODY_SIZE = "1mb";
 // Security middleware
 app.use(
   helmet({
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+    },
     contentSecurityPolicy: {
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),

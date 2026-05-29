@@ -136,7 +136,7 @@ backend/
 ## API Documentation
 
 Once the server is running, API documentation is available at:
-- Swagger UI: `http://localhost:3000/api-docs`
+- Swagger UI: `http://localhost:3000/api-docs` (development only, disabled in production for security)
 
 **Segment routes** (require API key with segment scope): `/v1/p2p`, `/v1/sme`, `/v1/international`, `/v1/salary`, `/v1/enterprise`, `/v1/savings`, `/v1/lending`, `/v1/gateway`, `/v1/bills`. For a full list of routes and smart contracts, see the repo docs: [API and Contracts Reference](../DOCS/API_AND_CONTRACTS_REFERENCE.MD).
 
@@ -259,14 +259,15 @@ livenessProbe:
 ## CI/CD
 
 GitHub Actions CI pipeline runs on:
-- Push to `main` or `develop` branches
-- Pull requests to `main` or `develop`
+- Push to `main`, `dev`, or `develop` branches
+- Pull requests to `main`, `dev`, or `develop`
 
 The CI pipeline:
 - Runs linter and formatter checks
 - Runs all tests
 - Builds the project
 - Validates database migrations
+- Blocks destructive Prisma migrations unless the pull request carries the `allow-destructive-migration` label
 
 ## Contributing
 

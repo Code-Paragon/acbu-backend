@@ -4,6 +4,20 @@ import { prisma } from "../src/config/database";
 import { generateApiKey } from "../src/middleware/auth";
 import { signChallengeToken, verifyChallengeToken } from "../src/utils/jwt";
 import { getRabbitMQChannel } from "../src/config/rabbitmq";
+import {
+  checkRecoveryRateLimit,
+  recordRecoveryAttempt,
+} from "../src/services/recovery/rateLimitService";
+import {
+  verifyDevice,
+  trustDevice,
+  isDeviceRateLimited,
+} from "../src/services/recovery/deviceVerification";
+import {
+  auditRecoveryEvent,
+  detectSuspiciousPatterns,
+  rotateUserSessions,
+} from "../src/services/recovery/auditService";
 
 jest.mock("../src/config/database", () => ({
   prisma: {
@@ -14,6 +28,10 @@ jest.mock("../src/config/database", () => ({
       create: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+    },
+    recoveryAttempt: {
+      count: jest.fn(),
+      create: jest.fn(),
     },
   },
 }));
@@ -43,6 +61,23 @@ jest.mock("../src/config/logger", () => ({
   },
 }));
 
+jest.mock("../src/services/recovery/rateLimitService", () => ({
+  checkRecoveryRateLimit: jest.fn(),
+  recordRecoveryAttempt: jest.fn(),
+}));
+
+jest.mock("../src/services/recovery/deviceVerification", () => ({
+  verifyDevice: jest.fn(),
+  trustDevice: jest.fn(),
+  isDeviceRateLimited: jest.fn(),
+}));
+
+jest.mock("../src/services/recovery/auditService", () => ({
+  auditRecoveryEvent: jest.fn(),
+  detectSuspiciousPatterns: jest.fn(),
+  rotateUserSessions: jest.fn(),
+}));
+
 const mockPrismaUserFindFirst = prisma.user.findFirst as jest.Mock;
 const mockPrismaOtpCreate = prisma.otpChallenge.create as jest.Mock;
 const mockPrismaOtpFindFirst = prisma.otpChallenge.findFirst as jest.Mock;
@@ -51,6 +86,14 @@ const mockGenerateApiKey = generateApiKey as jest.Mock;
 const mockSignChallengeToken = signChallengeToken as jest.Mock;
 const mockVerifyChallengeToken = verifyChallengeToken as jest.Mock;
 const mockGetRabbitMQChannel = getRabbitMQChannel as jest.Mock;
+const mockCheckRecoveryRateLimit = checkRecoveryRateLimit as jest.Mock;
+const mockRecordRecoveryAttempt = recordRecoveryAttempt as jest.Mock;
+const mockVerifyDevice = verifyDevice as jest.Mock;
+const mockTrustDevice = trustDevice as jest.Mock;
+const mockIsDeviceRateLimited = isDeviceRateLimited as jest.Mock;
+const mockAuditRecoveryEvent = auditRecoveryEvent as jest.Mock;
+const mockDetectSuspiciousPatterns = detectSuspiciousPatterns as jest.Mock;
+const mockRotateUserSessions = rotateUserSessions as jest.Mock;
 
 describe("recoveryService", () => {
   beforeEach(() => {
@@ -59,6 +102,24 @@ describe("recoveryService", () => {
       assertQueue: jest.fn().mockResolvedValue(undefined),
       sendToQueue: jest.fn(),
     });
+    mockCheckRecoveryRateLimit.mockResolvedValue({
+      allowed: true,
+      remainingAttempts: 5,
+    });
+    mockIsDeviceRateLimited.mockResolvedValue(false);
+    mockVerifyDevice.mockResolvedValue({
+      deviceId: "device-1",
+      isTrusted: false,
+      requiresVerification: false,
+    });
+    mockDetectSuspiciousPatterns.mockResolvedValue({
+      isSuspicious: false,
+      reasons: [],
+    });
+    mockRecordRecoveryAttempt.mockResolvedValue(undefined);
+    mockAuditRecoveryEvent.mockResolvedValue(undefined);
+    mockRotateUserSessions.mockResolvedValue(undefined);
+    mockTrustDevice.mockResolvedValue(undefined);
   });
 
   describe("unlockApp", () => {
@@ -74,11 +135,17 @@ describe("recoveryService", () => {
       const out = await unlockApp({
         identifier: "user@example.com",
         passcode: "1234",
+        deviceFingerprint: { os: "Android", browser: "Chrome" } as any,
       });
 
       expect(out).toEqual({
         challenge_token: "challenge-token",
         channel: "email",
+        requires_device_verification: false,
+        device_id: "device-1",
+        rate_limit_info: {
+          remaining_attempts: 5,
+        },
       });
       expect(mockPrismaOtpCreate).toHaveBeenCalledTimes(1);
       expect(mockSignChallengeToken).toHaveBeenCalledWith("user-1");
@@ -93,7 +160,7 @@ describe("recoveryService", () => {
       });
 
       await expect(
-        unlockApp({ identifier: "user@example.com", passcode: "9999" }),
+        unlockApp({ identifier: "user@example.com", passcode: "9999", deviceFingerprint: { os: "Android", browser: "Chrome" } as any }),
       ).rejects.toThrow("Invalid passcode");
     });
   });

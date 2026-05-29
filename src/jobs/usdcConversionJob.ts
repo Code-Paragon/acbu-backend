@@ -44,7 +44,7 @@ export async function startUsdcConversionConsumer(): Promise<void> {
           const amountLocal = usdcNum * weightFrac;
           try {
             const router = getFintechRouter();
-            const provider = router.getProvider(currency);
+            const provider = await router.getProvider(currency);
             await provider.convertCurrency(
               usdcNum * weightFrac,
               "USD",

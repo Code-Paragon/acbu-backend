@@ -45,7 +45,12 @@ export async function postInvestmentWithdrawRequest(
     }
     const parsed = requestSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new AppError("Invalid request", 400, "VALIDATION_ERROR", parsed.error.flatten());
+      throw new AppError(
+        "Invalid request",
+        400,
+        "VALIDATION_ERROR",
+        parsed.error.flatten(),
+      );
     }
     const { amount_acbu, audience, forced_removal } = parsed.data;
     const amountNum = Number(amount_acbu);
@@ -102,7 +107,7 @@ export async function postInvestmentWithdrawRequest(
 
 const WITHDRAWAL_STATUSES = ["requested", "available", "completed", "cancelled"] as const;
 
-const getWithdrawRequestsQuerySchema = z.object({
+export const getWithdrawRequestsQuerySchema = z.object({
   limit: z
     .string()
     .optional()

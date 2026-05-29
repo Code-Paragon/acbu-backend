@@ -16,10 +16,6 @@ export const bulkTransferRowSchema = z.object({
 
 export type BulkTransferRowInput = z.infer<typeof bulkTransferRowSchema>;
 
-export function validateBulkTransferRow(row: unknown): BulkTransferRowInput {
-  return bulkTransferRowSchema.parse(row);
-}
-
-export function validateBulkTransferRowSafe(row: unknown) {
-  return bulkTransferRowSchema.safeParse(row);
-}
+// Helper types and schema are exposed; parsing helpers are unused in the
+// codebase and were removed to avoid exporting dead code. Use
+// `bulkTransferRowSchema.parse()` / `safeParse()` where needed.

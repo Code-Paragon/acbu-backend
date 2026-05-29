@@ -8,13 +8,13 @@ import {
   Keypair,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../../config/database";
 import { stellarClient } from "../stellar/client";
 import { getBaseFee } from "../stellar/feeManager";
 import { resolveRecipientToStellarAddress } from "../recipient/recipientResolver";
+import crypto from "crypto";
 
-import { logger } from "../../config/logger";
+import { logger, logFinancialEvent } from "../../config/logger";
 import type {
   CreateTransferParams,
   CreateTransferOptions,
@@ -84,7 +84,9 @@ export async function createTransfer(
     throw new Error("Sender user not found");
   }
   if (sender.kycStatus !== "verified") {
-    throw new Error("KYC required to make payments. Complete verification first.");
+    throw new Error(
+      "KYC required to make payments. Complete verification first.",
+    );
   }
 
   const recipientAddress = await resolveRecipientToStellarAddress(
@@ -106,12 +108,17 @@ export async function createTransfer(
       type: "transfer",
       status: "pending",
       recipientAddress,
-      acbuAmount: new Decimal(amount),
+      acbuAmount: amount,
     },
   });
 
   const correlationId = options?.correlationId ?? crypto.randomUUID();
-  const amountInSmallestUnit = Math.round(Number(amount) * 100);
+  // Avoid float arithmetic: parse integer and fractional parts separately to
+  // prevent precision loss when amount has up to 7 decimal places.
+  const [wholePart, fracPart = ""] = amount.split(".");
+  const amountInSmallestUnit =
+    parseInt(wholePart, 10) * 100 +
+    parseInt(fracPart.slice(0, 2).padEnd(2, "0"), 10);
 
   // Emit transfer.initiated immediately after the Transaction row is created
   logFinancialEvent({

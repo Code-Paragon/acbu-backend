@@ -90,6 +90,18 @@ export function verifyChallengeToken(token: string): ChallengePayload {
       throw new Error("Invalid token issuer");
     }
 
+    if (typeof decoded.iat === "number") {
+      const now = Math.floor(Date.now() / 1000);
+      const maxAllowedIat = now + config.jwtClockToleranceSeconds;
+      if (decoded.iat > maxAllowedIat) {
+        logger.warn("Challenge token issued-at is beyond clock tolerance", {
+          issuedAt: decoded.iat,
+          maxAllowedIat,
+        });
+        throw new Error("Invalid token issued-at");
+      }
+    }
+
     return decoded;
   } catch (error) {
     if (error instanceof jwt.JsonWebTokenError) {

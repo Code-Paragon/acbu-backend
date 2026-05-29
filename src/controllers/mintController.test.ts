@@ -41,7 +41,7 @@ describe("mintController", () => {
           amount: "100",
           wallet_address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
         },
-      } as AuthRequest,
+      } as unknown as AuthRequest,
       res,
       next,
     );
@@ -62,9 +62,9 @@ describe("mintController", () => {
         body: {
           currency: "NGN",
           amount: "100",
-          wallet_address: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          wallet_address: `G${"B".repeat(55)}`,
         },
-      } as AuthRequest,
+      } as unknown as AuthRequest,
       res,
       next,
     );

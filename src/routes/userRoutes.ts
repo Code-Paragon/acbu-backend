@@ -62,10 +62,8 @@ router.use(apiKeyRateLimiter);
  *               email:
  *                 type: string
  *                 format: email
- *                 example: alice@placeholder.test
  *               phone_e164:
  *                 type: string
- *                 example: "+0000000000"
  *               privacy_hide_from_search:
  *                 type: boolean
  *               passcode:
@@ -86,15 +84,192 @@ router.use(apiKeyRateLimiter);
 router.get("/me", getMe);
 router.patch("/me", patchMe);
 router.delete("/me", deleteMe);
+
+/**
+ * @swagger
+ * /v1/users/me/receive:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get receive alias and pay URI
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Receive info retrieved successfully
+ */
 router.get("/me/receive", getReceive);
+
+/**
+ * @swagger
+ * /v1/users/me/receive/qrcode:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get receive QR code
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: QR code retrieved successfully
+ */
 router.get("/me/receive/qrcode", getReceiveQrcode);
+
+/**
+ * @swagger
+ * /v1/users/me/balance:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get user balances
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Balances retrieved successfully
+ */
 router.get("/me/balance", getMeBalance);
+
+/**
+ * @swagger
+ * /v1/users/me/wallet/confirm:
+ *   post:
+ *     tags:
+ *       - Users
+ *     summary: Confirm wallet setup
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - encryption_method
+ *               - passcode
+ *               - passphrase
+ *             properties:
+ *               encryption_method:
+ *                 type: string
+ *                 enum: [passcode]
+ *               passcode:
+ *                 type: string
+ *               passphrase:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Wallet confirmed successfully
+ */
 router.post("/me/wallet/confirm", postWalletConfirm);
+
+/**
+ * @swagger
+ * /v1/users/me/wallet/activate:
+ *   post:
+ *     tags:
+ *       - Users
+ *     summary: Activate wallet on-chain
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallet activated successfully
+ */
 router.post("/me/wallet/activate", postWalletActivate);
+
+/**
+ * @swagger
+ * /v1/users/me/wallet:
+ *   put:
+ *     tags:
+ *       - Users
+ *     summary: Update wallet address
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - stellar_address
+ *             properties:
+ *               stellar_address:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Wallet address updated
+ *   delete:
+ *     tags:
+ *       - Users
+ *     summary: Detach wallet
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallet detached
+ */
 router.put("/me/wallet", putWalletAddress);
 router.delete("/me/wallet", deleteWallet);
+
+/**
+ * @swagger
+ * /v1/users/me/contacts:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: List contacts
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Contacts retrieved successfully
+ *   post:
+ *     tags:
+ *       - Users
+ *     summary: Add contact
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - contact_user_id
+ *             properties:
+ *               contact_user_id:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       201:
+ *         description: Contact added successfully
+ */
 router.post("/me/contacts", postContacts);
 router.get("/me/contacts", getContacts);
+
+/**
+ * @swagger
+ * /v1/users/me/contacts/{id}:
+ *   delete:
+ *     tags:
+ *       - Users
+ *     summary: Remove contact
+ *     security:
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Contact removed
+ */
 router.delete("/me/contacts/:id", deleteContact);
 
 /**
@@ -128,16 +303,34 @@ router.delete("/me/contacts/:id", deleteContact);
  *               guardian_email:
  *                 type: string
  *                 format: email
- *                 example: guardian@placeholder.test
  *               guardian_phone:
  *                 type: string
- *                 example: "+0000000000"
  *     responses:
  *       201:
  *         description: Guardian added successfully
  */
 router.post("/me/guardians", postGuardians);
 router.get("/me/guardians", getGuardians);
+
+/**
+ * @swagger
+ * /v1/users/me/guardians/{id}:
+ *   delete:
+ *     tags:
+ *       - Users
+ *     summary: Remove guardian
+ *     security:
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Guardian removed
+ */
 router.delete("/me/guardians/:id", deleteGuardian);
 
 export default router;

@@ -49,6 +49,14 @@ const revokePrivilegedKeySchema = z.object({
   reason: z.string().min(1, "reason is required").max(255),
 });
 
+function getRequestIp(req: AuthRequest): string {
+  const connection = (req as AuthRequest & {
+    connection?: { remoteAddress?: string | null };
+  }).connection;
+
+  return req.ip || req.socket?.remoteAddress || connection?.remoteAddress || "unknown";
+}
+
 /**
  * POST /auth/signup
  * Body: { username, passcode }
@@ -94,7 +102,7 @@ export async function postSignin(
     const result = await signin({
       identifier: body.identifier.trim(),
       passcode: body.passcode,
-      ip: req.ip || req.socket.remoteAddress || "unknown",
+      ip: getRequestIp(req),
       captchaToken: body.captcha_token,
     });
     if ("requires_2fa" in result) {
@@ -173,7 +181,7 @@ export async function postVerify2fa(
     const result = await verify2fa({
       challenge_token: body.challenge_token,
       code: body.code,
-      ip: req.ip || req.socket.remoteAddress || "unknown",
+      ip: getRequestIp(req),
     });
     const payload: Record<string, unknown> = {
       api_key: result.api_key,

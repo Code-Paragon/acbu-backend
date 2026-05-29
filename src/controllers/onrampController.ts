@@ -4,6 +4,7 @@
  */
 import { Response, NextFunction } from "express";
 import { z } from "zod";
+import crypto from "crypto";
 import { prisma } from "../config/database";
 import { AuthRequest } from "../middleware/auth";
 import { Decimal } from "@prisma/client/runtime/library";
@@ -11,6 +12,7 @@ import { enqueueXlmToAcbu } from "../jobs/xlmToAcbuJob";
 import { AppError } from "../middleware/errorHandler";
 import { isValidStellarAddress } from "../utils/stellar";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
+import { logFinancialEvent } from "../config/logger";
 
 export const bodySchema = z.object({
   stellar_address: z
@@ -53,7 +55,12 @@ export async function registerOnRampSwap(
     }
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new AppError("Invalid request", 400, "VALIDATION_ERROR", parsed.error.flatten());
+      throw new AppError(
+        "Invalid request",
+        400,
+        "VALIDATION_ERROR",
+        parsed.error.flatten(),
+      );
     }
 
     const { stellar_address, xlm_amount, usdc_amount } = parsed.data;
@@ -87,7 +94,10 @@ export async function registerOnRampSwap(
       currency: "XLM",
       correlationId,
       timestamp: new Date().toISOString(),
-      environment: (process.env.NODE_ENV ?? "development") as "production" | "staging" | "development",
+      environment: (process.env.NODE_ENV ?? "development") as
+        | "production"
+        | "staging"
+        | "development",
     });
     await enqueueXlmToAcbu({
       onRampSwapId: swap.id,

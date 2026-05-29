@@ -6,12 +6,14 @@ import {
 import { validateApiKey } from "../middleware/auth";
 import { apiKeyRateLimiter } from "../middleware/rateLimiter";
 
-const router: IRouter = Router();
-router.use(validateApiKey);
-router.use(apiKeyRateLimiter);
-/**
- * @swagger
- * tags:
+export function createMintRoutes(): ReturnType<typeof Router> {
+  const router: IRouter = Router();
+  router.use(validateApiKey);
+  router.use(apiKeyRateLimiter);
+
+  /**
+   * @swagger
+   * tags:
  *   - name: Mint
  *     description: Asset minting and deposits
  */
@@ -86,4 +88,8 @@ router.post("/usdc", mintFromUsdc);
  *         description: Deposit request accepted
  */
 router.post("/deposit", depositFromBasketCurrency);
+  return router;
+}
+
+const router = createMintRoutes();
 export default router;

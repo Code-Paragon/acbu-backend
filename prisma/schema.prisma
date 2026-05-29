@@ -114,6 +114,7 @@ model Transaction {
   @@index([createdAt], map: "idx_transactions_created_at")
   @@index([userId, type], map: "idx_transactions_user_type")
   @@index([status, createdAt], map: "idx_transactions_status_created")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_transactions_user_id_created_at")
   @@map("transactions")
 }
 

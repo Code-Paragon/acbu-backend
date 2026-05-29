@@ -1,13 +1,16 @@
 import { initTracing } from "./config/tracing";
 initTracing();
 
+import { execSync } from "child_process";
 import express from "express";
 import helmet from "helmet";
+import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
 import { logger } from "./config/logger";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
+import { prisma } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler } from "./middleware/errorHandler";
@@ -33,6 +36,10 @@ app.use(
   }),
 );
 app.use(corsMiddleware);
+
+// Compress all JSON/text responses to reduce bandwidth on large payloads
+app.use(compression());
+
 app.use(express.urlencoded({ extended: true }));
 
 // Webhooks need raw body for signature verification; mount before json()
@@ -78,6 +85,11 @@ app.use(errorHandler);
 // Initialize connections and start server
 async function startServer() {
   try {
+    // Ensures schema is in sync before accepting traffic; prevents "table does not exist" on new columns.
+    logger.info("Applying Prisma migrations...");
+    execSync("npx prisma migrate deploy", { stdio: "inherit" });
+    logger.info("Prisma migrations applied successfully");
+
     // Connect to MongoDB (optional: server starts even if unreachable or MONGODB_URI empty)
     if (config.mongodbUri) {
       try {
@@ -201,6 +213,10 @@ async function startServer() {
     }
     const { eventListener } = await import("./services/stellar/eventListener");
     void eventListener.start();
+
+    // Mark application as ready for health checks
+    const { markStartupComplete } = await import("./services/health/healthService");
+    markStartupComplete();
 
     // Start HTTP server
     const server = app.listen(config.port, () => {

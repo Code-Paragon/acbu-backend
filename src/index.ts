@@ -18,6 +18,7 @@ import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
+import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 
 const app: express.Express = express();
 const MAX_REQUEST_BODY_SIZE = "1mb";
@@ -236,7 +237,7 @@ async function startServer() {
     markStartupComplete();
 
     // Start HTTP server
-    app.listen(config.port, () => {
+    const server = app.listen(config.port, () => {
       logger.info(`Server running on port ${config.port}`);
       logger.info(`Environment: ${config.nodeEnv}`);
       logger.info(`API Version: ${config.apiVersion}`);
@@ -246,25 +247,15 @@ async function startServer() {
         );
       }
     });
+    setHttpServer(server);
   } catch (error) {
     logger.error("Failed to start server", error);
     process.exit(1);
   }
 }
 
-// Handle graceful shutdown
-const shutdown = async () => {
-  logger.info("Shutting down gracefully...");
-  await disconnectMongoDB();
-  await disconnectRabbitMQ();
-  await prisma.$disconnect();
-  process.exit(0);
-};
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
-
 if (require.main === module) {
+  registerGracefulShutdown();
   void startServer();
 }
 

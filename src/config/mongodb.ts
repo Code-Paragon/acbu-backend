@@ -12,55 +12,63 @@ function sanitizeMongoUri(uri: string): string {
 export async function connectMongoDB(): Promise<Db> {
   if (db) return db;
 
-  try {
-    client = new MongoClient(config.mongodbUri);
-    await client.connect();
-    db = client.db();
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      client = new MongoClient(config.mongodbUri);
+      await client.connect();
+      db = client.db();
+      logger.info("MongoDB connected successfully");
+      break;
+    } catch (error) {
+      lastError = error;
+      client = null;
+      if (attempt === MAX_RETRIES) break;
+      const delay = BASE_DELAY_MS * 2 ** (attempt - 1);
+      logger.warn(`MongoDB connection attempt ${attempt} failed, retrying in ${delay}ms`, { error });
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 
-    logger.info("MongoDB connected successfully");
+  if (!db) {
+    logger.error("Failed to connect to MongoDB after retries", { error: lastError });
+    throw lastError;
+  }
 
-    const collection = db.collection("cache");
+  const collection = db.collection("cache");
 
-    // Define index configurations
-    const indexConfigs: Array<{
-      spec: Record<string, 1>;
-      options: { name: string; expireAfterSeconds?: number };
-      critical: boolean;
-    }> = [
-      {
-        spec: { key: 1, expiresAt: 1 },
-        options: { name: "idx_key_expiresAt" },
-        critical: false,
-      },
-      {
-        spec: { expiresAt: 1 },
-        options: { name: "idx_expiresAt_ttl", expireAfterSeconds: 0 },
-        critical: true, // TTL failure impacts security logic
-      },
-    ];
+  const indexConfigs: Array<{
+    spec: Record<string, 1>;
+    options: { name: string; expireAfterSeconds?: number };
+    critical: boolean;
+  }> = [
+    {
+      spec: { key: 1, expiresAt: 1 },
+      options: { name: "idx_key_expiresAt" },
+      critical: false,
+    },
+    {
+      spec: { expiresAt: 1 },
+      options: { name: "idx_expiresAt_ttl", expireAfterSeconds: 0 },
+      critical: true,
+    },
+  ];
 
-    // Execute all index creations regardless of individual failures
-    const results = await Promise.allSettled(
-      indexConfigs.map((idx) => collection.createIndex(idx.spec, idx.options)),
-    );
+  const results = await Promise.allSettled(
+    indexConfigs.map((idx) => collection.createIndex(idx.spec, idx.options)),
+  );
 
-    // Evaluate results
-    results.forEach((result, i) => {
-      if (result.status === "rejected") {
-        const config = indexConfigs[i];
-        const logData = {
-          indexName: config.options.name,
-          error: result.reason,
-        };
-
-        if (config.critical) {
-          // TTL failures are logged as errors because they break brute-force protection
-          logger.error("Critical index creation failed", logData);
-        } else {
-          logger.warn("Index creation warning", logData);
-        }
+  results.forEach((result, i) => {
+    if (result.status === "rejected") {
+      const cfg = indexConfigs[i];
+      const logData = { indexName: cfg.options.name, error: result.reason };
+      if (cfg.critical) {
+        logger.error("Critical index creation failed", logData);
+      } else {
+        logger.warn("Index creation warning", logData);
       }
-    });
+    }
+  });
 
     return db;
   } catch (error) {

@@ -5,8 +5,9 @@ import { logger } from "./logger";
 let client: MongoClient | null = null;
 let db: Db | null = null;
 
-const MAX_RETRIES = 5;
-const BASE_DELAY_MS = 500;
+function sanitizeMongoUri(uri: string): string {
+  return uri.replace(/\/\/[^:@]+:[^@]+@/, "//***:***@");
+}
 
 export async function connectMongoDB(): Promise<Db> {
   if (db) return db;
@@ -69,7 +70,14 @@ export async function connectMongoDB(): Promise<Db> {
     }
   });
 
-  return db;
+    return db;
+  } catch (error) {
+    logger.error("Failed to connect to MongoDB", {
+      uri: sanitizeMongoUri(config.mongodbUri),
+      error,
+    });
+    throw error;
+  }
 }
 
 export async function disconnectMongoDB(): Promise<void> {

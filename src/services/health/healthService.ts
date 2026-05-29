@@ -1,4 +1,5 @@
 import { prisma } from "../../config/database";
+import { Prisma } from "@prisma/client";
 import { getMongoDB } from "../../config/mongodb";
 import { getRabbitMQChannel } from "../../config/rabbitmq";
 import { logger } from "../../config/logger";
@@ -37,7 +38,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 async function checkPostgres(): Promise<HealthDetail> {
   try {
-    await withTimeout(prisma.$queryRaw`SELECT 1`, TIMEOUT_MS);
+    await withTimeout(
+      prisma.$queryRaw(Prisma.sql`SELECT 1`),
+      TIMEOUT_MS
+    );
     return { status: "up" };
   } catch (err) {
     const message = (err as Error).message;

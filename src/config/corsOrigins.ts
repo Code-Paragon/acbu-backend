@@ -6,10 +6,11 @@ export const DEFAULT_DEV_CORS_ORIGIN = "http://localhost:3000";
  * Wildcard (*) is rejected: browsers forbid ACAO:* with Allow-Credentials.
  */
 export function parseCorsOrigins(raw: string | undefined, nodeEnv: string): string[] {
+  const normalizedEnv = nodeEnv.trim().toLowerCase();
   const trimmed = raw?.trim();
 
   if (!trimmed) {
-    if (nodeEnv === "production") {
+    if (normalizedEnv === "production") {
       throw new Error(
         "CORS_ORIGIN is required in production. Set a comma-separated list of exact origins " +
           "(e.g. https://app.example.com). Wildcard * is not allowed with credentials.",
@@ -51,9 +52,14 @@ export function parseCorsOrigins(raw: string | undefined, nodeEnv: string): stri
         `Invalid CORS origin "${origin}". Only http:// and https:// origins are supported.`,
       );
     }
-    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    if (url.username || url.password || url.search || url.hash) {
       throw new Error(
-        `Invalid CORS origin "${origin}". Provide scheme, host, and port only (no path or credentials).`,
+        `Invalid CORS origin "${origin}". Provide scheme, host, and port only (no credentials in URL).`,
+      );
+    }
+    if (url.pathname !== "/" || origin.endsWith("/")) {
+      throw new Error(
+        `Invalid CORS origin "${origin}". Provide scheme, host, and port only (no path or trailing slash).`,
       );
     }
     normalized.push(url.origin);

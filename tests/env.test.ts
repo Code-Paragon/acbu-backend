@@ -49,6 +49,9 @@ describe("env validation", () => {
 
   it("throws when CORS_ORIGIN contains wildcard", () => {
     process.env.CORS_ORIGIN = "*";
-    expect(() => require("../src/config/env")).toThrow(/wildcard/i);
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("../src/config/env");
+    }).toThrow(/wildcard/i);
   });
 });

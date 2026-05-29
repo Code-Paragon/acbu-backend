@@ -25,7 +25,10 @@ const corsOptionsBase: Omit<CorsOptions, "origin"> = {
   allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
 };
 
-/** Build CORS middleware for a fixed allowlist (used in tests and production). */
+/**
+ * Build CORS middleware for a fixed allowlist.
+ * Reflects the request origin when allowed; never emits `*` (incompatible with credentials).
+ */
 export function createCorsMiddleware(allowedOrigins: readonly string[]) {
   return cors({
     ...corsOptionsBase,
@@ -44,4 +47,5 @@ export function createCorsMiddleware(allowedOrigins: readonly string[]) {
   });
 }
 
+/** Production CORS middleware using origins from validated env config. */
 export const corsMiddleware = createCorsMiddleware(config.corsOrigin);

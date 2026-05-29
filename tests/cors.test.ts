@@ -13,6 +13,9 @@ describe("parseCorsOrigins", () => {
     expect(() => parseCorsOrigins(undefined, "production")).toThrow(
       /CORS_ORIGIN is required in production/,
     );
+    expect(() => parseCorsOrigins(undefined, "Production")).toThrow(
+      /CORS_ORIGIN is required in production/,
+    );
   });
 
   it("rejects wildcard *", () => {
@@ -35,8 +38,11 @@ describe("parseCorsOrigins", () => {
     ]);
   });
 
-  it("rejects origins with paths", () => {
+  it("rejects origins with paths or trailing slashes", () => {
     expect(() => parseCorsOrigins("https://app.example.com/dashboard", "development")).toThrow(
+      /scheme, host, and port only/i,
+    );
+    expect(() => parseCorsOrigins("https://app.example.com/", "development")).toThrow(
       /scheme, host, and port only/i,
     );
   });
@@ -82,10 +88,12 @@ describe("createCorsMiddleware", () => {
   });
 
   it("rejects disallowed cross-origin requests", async () => {
-    await request(buildApp([allowedOrigin]))
+    const res = await request(buildApp([allowedOrigin]))
       .get("/ping")
-      .set("Origin", "https://evil.example.com")
-      .expect(500);
+      .set("Origin", "https://evil.example.com");
+
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(res.headers["access-control-allow-credentials"]).toBeUndefined();
   });
 
   it("handles preflight OPTIONS with reflected origin", async () => {

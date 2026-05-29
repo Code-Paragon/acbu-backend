@@ -10,6 +10,7 @@ import { config } from "./config/env";
 import { logger } from "./config/logger";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
+import { prisma } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler } from "./middleware/errorHandler";
@@ -238,6 +239,7 @@ const shutdown = async () => {
   logger.info("Shutting down gracefully...");
   await disconnectMongoDB();
   await disconnectRabbitMQ();
+  await prisma.$disconnect();
   process.exit(0);
 };
 

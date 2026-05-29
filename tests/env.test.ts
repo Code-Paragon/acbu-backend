@@ -46,4 +46,12 @@ describe("env validation", () => {
     process.env.LOG_LEVEL = "invalid_level";
     expect(() => require("../src/config/env")).toThrow(/LOG_LEVEL/);
   });
+
+  it("throws when CORS_ORIGIN contains wildcard", () => {
+    process.env.CORS_ORIGIN = "*";
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("../src/config/env");
+    }).toThrow(/wildcard/i);
+  });
 });

@@ -10,6 +10,7 @@ import { acbuMintingService } from "../services/contracts";
 import { stellarClient } from "../services/stellar/client";
 import { AuthRequest } from "../middleware/auth";
 import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma } from "@prisma/client";
 import { logAudit } from "../services/audit";
 import {
   BASKET_CURRENCIES,
@@ -24,6 +25,7 @@ import { enqueueUsdcConvertAndMint } from "../jobs/usdcConvertAndMintJob";
 import { Prisma } from "@prisma/client";
 import { AppError } from "../middleware/errorHandler";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
+import { convertLocalToUsd } from "../services/rates";
 import { logger } from "../config/logger";
 import { convertLocalToUsd } from "../services/rates";
 import {
@@ -80,7 +82,12 @@ export async function mintFromUsdc(
 
     const parsed = usdcBodySchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new AppError("Invalid request", 400, "VALIDATION_ERROR", parsed.error.flatten());
+      throw new AppError(
+        "Invalid request",
+        400,
+        "VALIDATION_ERROR",
+        parsed.error.flatten(),
+      );
     }
 
     const { usdc_amount, wallet_address } = parsed.data;
@@ -101,7 +108,6 @@ export async function mintFromUsdc(
         "CIRCUIT_BREAKER",
       );
     }
-
 
     // Apply deposit limits - use retail as default if no audience is set
     // FIX #32: Defaulting to "retail" prevents limit bypass when audience is undefined
@@ -248,6 +254,14 @@ export async function mintFromUsdcInternal(
   }
 }
 
+const fintechTxIdSchema = z
+  .string()
+  .trim()
+  .min(1, "fintech_tx_id must be provided")
+  .max(255, "fintech_tx_id must be 255 characters or fewer")
+  .regex(/^[^\s]+$/, "fintech_tx_id must not contain whitespace")
+  .optional();
+
 export const depositBodySchema = z.object({
   currency: z.string().length(3).toUpperCase(),
   amount: z
@@ -258,6 +272,7 @@ export const depositBodySchema = z.object({
       "must be positive with up to 7 decimal places",
     ),
   wallet_address: z.string().length(56).regex(/^G/),
+  fintech_tx_id: fintechTxIdSchema,
 });
 
 /**
@@ -276,7 +291,7 @@ export async function depositFromBasketCurrency(
         .json({ error: "Invalid request", details: parsed.error.flatten() });
       return;
     }
-    const { currency, amount, wallet_address } = parsed.data;
+    const { currency, amount, wallet_address, fintech_tx_id } = parsed.data;
     if (isForbiddenDepositCurrency(currency)) {
       throw new AppError(
         `Deposits in ${currency} are not allowed. Only basket (pool) currencies are accepted: ${BASKET_CURRENCIES.join(", ")}. For USDC, use the on-ramp (swap USDC→XLM via Stellar LP).`,
@@ -300,6 +315,19 @@ export async function depositFromBasketCurrency(
       throw new AppError("User context required for deposit", 401);
     }
     await assertUserWalletAddress(userId, wallet_address);
+    if (fintech_tx_id) {
+      const existingTx = await prisma.transaction.findUnique({
+        where: { idempotencyKey: fintech_tx_id },
+      });
+      if (existingTx) {
+        throw new AppError(
+          "Duplicate fintech_tx_id detected",
+          409,
+          "DUPLICATE_FINTECH_TX_ID",
+          { fintech_tx_id },
+        );
+      }
+    }
     // SECURITY: Always enforce circuit breaker and deposit limits
     // Previously these checks were skipped when req.audience was undefined,
     // allowing bypass of critical financial controls via direct /mint/deposit route
@@ -312,10 +340,9 @@ export async function depositFromBasketCurrency(
       );
     }
 
-
     // Apply deposit limits - use retail as default if no audience is set
     const audience = req.audience || "retail";
-    
+
     // CRITICAL: Convert local currency amount to USD for accurate limit checking.
     // Previously, the raw local amount was passed directly to checkDepositLimits,
     // treating 100,000 NGN as if it were 100,000 USD.

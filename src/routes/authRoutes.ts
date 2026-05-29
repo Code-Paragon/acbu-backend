@@ -5,6 +5,8 @@ import {
   postIssueAdminKey,
   postIssueBreakGlassKey,
   postRevokePrivilegedKey,
+  postRefreshAccessToken,
+  postRevokeRefreshToken,
   postSignup,
   postSignin,
   postSignout,
@@ -250,6 +252,18 @@ router.post(
   validateApiKey,
   apiKeyRateLimiter,
   postRevokePrivilegedKey,
+);
+
+// Refresh token endpoints
+router.post(
+  "/refresh-token",
+  authRateLimiter,
+  postRefreshAccessToken,
+);
+router.post(
+  "/refresh-token/revoke",
+  authRateLimiter,
+  postRevokeRefreshToken,
 );
 
 export default router;

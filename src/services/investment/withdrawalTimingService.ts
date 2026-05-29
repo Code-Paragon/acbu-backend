@@ -1,5 +1,5 @@
 import type { InvestmentWithdrawalRequest } from "@prisma/client";
-import { prisma } from "../../config/database";
+import { Prisma, prisma } from "../../config/database";
 import { isBusinessWithdrawalAllowedDay } from "../../config/investment";
 
 const WITHDRAWAL_DELAY_HOURS = 24;
@@ -34,16 +34,18 @@ export type ReadyInvestmentWithdrawalBatch = {
  * server clock drift.
  */
 export async function getInvestmentWithdrawalTiming(): Promise<InvestmentWithdrawalTiming> {
-  const [row] = await prisma.$queryRaw<WithdrawalTimingRow[]>`
-    WITH trusted_clock AS (
-      SELECT clock_timestamp() AS trusted_now
-    )
-    SELECT
-      trusted_now AS "requestedAt",
-      trusted_now + make_interval(hours => ${WITHDRAWAL_DELAY_HOURS}) AS "availableAt",
-      EXTRACT(DAY FROM (trusted_now AT TIME ZONE 'UTC'))::int AS "businessCalendarDay"
-    FROM trusted_clock
-  `;
+  const [row] = await prisma.$queryRaw<WithdrawalTimingRow[]>(
+    Prisma.sql`
+      WITH trusted_clock AS (
+        SELECT clock_timestamp() AS trusted_now
+      )
+      SELECT
+        trusted_now AS "requestedAt",
+        trusted_now + ${Prisma.sql`make_interval(hours => ${WITHDRAWAL_DELAY_HOURS})`} AS "availableAt",
+        EXTRACT(DAY FROM (trusted_now AT TIME ZONE 'UTC'))::int AS "businessCalendarDay"
+      FROM trusted_clock
+    `
+  );
 
   const requestedAt = assertDate(row?.requestedAt, "requestedAt");
   const availableAt = assertDate(row?.availableAt, "availableAt");
@@ -76,9 +78,9 @@ export async function getReadyInvestmentWithdrawalBatch(
 }
 
 async function getTrustedDatabaseTime(): Promise<Date> {
-  const [row] = await prisma.$queryRaw<TrustedClockRow[]>`
-    SELECT clock_timestamp() AS "trustedNow"
-  `;
+  const [row] = await prisma.$queryRaw<TrustedClockRow[]>(
+    Prisma.sql`SELECT clock_timestamp() AS "trustedNow"`
+  );
 
   return assertDate(row?.trustedNow, "trustedNow");
 }

@@ -17,9 +17,30 @@ jest.mock("../src/config/logger", () => ({
   logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() },
 }));
 
+jest.mock("../src/services/stellar/eventListener", () => ({
+  eventListenerHealth: {
+    status: "up",
+    lastHealthyAt: Date.now(),
+    lastUnhealthyAt: null,
+    lastError: null,
+    reconnectAttemptsTotal: 0,
+    lastReconnectAttemptAt: null,
+  },
+}));
+
 import { prisma } from "../src/config/database";
 import { getMongoDB } from "../src/config/mongodb";
 import { getRabbitMQChannel } from "../src/config/rabbitmq";
+
+const mockEventListenerHealth = require("../src/services/stellar/eventListener")
+  .eventListenerHealth as {
+  status: "up" | "down";
+  lastHealthyAt: number | null;
+  lastUnhealthyAt: number | null;
+  lastError: string | null;
+  reconnectAttemptsTotal: number;
+  lastReconnectAttemptAt: number | null;
+};
 
 const mockPrismaQuery = prisma.$queryRaw as jest.Mock;
 const mockGetMongoDB = getMongoDB as jest.Mock;
@@ -32,6 +53,12 @@ const healthyMongo = () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEventListenerHealth.status = "up";
+  mockEventListenerHealth.lastHealthyAt = Date.now();
+  mockEventListenerHealth.lastUnhealthyAt = null;
+  mockEventListenerHealth.lastError = null;
+  mockEventListenerHealth.reconnectAttemptsTotal = 0;
+  mockEventListenerHealth.lastReconnectAttemptAt = null;
 });
 
 describe("getHealthReport", () => {
@@ -46,6 +73,7 @@ describe("getHealthReport", () => {
     expect(report.details.postgres.status).toBe("up");
     expect(report.details.mongodb.status).toBe("up");
     expect(report.details.rabbitmq.status).toBe("up");
+    expect(report.details.sorobanEventListener.status).toBe("up");
   });
 
   it("should return 503-worthy status 'down' when PostgreSQL connection is lost", async () => {
@@ -58,9 +86,9 @@ describe("getHealthReport", () => {
     expect(report.status).toBe("down");
     expect(report.details.postgres.status).toBe("down");
     expect(report.details.postgres.error).toBe("PostgreSQL unreachable");
-    // other services still up
     expect(report.details.mongodb.status).toBe("up");
     expect(report.details.rabbitmq.status).toBe("up");
+    expect(report.details.sorobanEventListener.status).toBe("up");
   });
 
   it("should return status 'down' when MongoDB is unreachable", async () => {
@@ -74,6 +102,7 @@ describe("getHealthReport", () => {
 
     expect(report.status).toBe("down");
     expect(report.details.mongodb.status).toBe("down");
+    expect(report.details.sorobanEventListener.status).toBe("up");
   });
 
   it("should return status 'down' when RabbitMQ channel is unavailable", async () => {
@@ -85,6 +114,23 @@ describe("getHealthReport", () => {
 
     expect(report.status).toBe("down");
     expect(report.details.rabbitmq.status).toBe("down");
+    expect(report.details.sorobanEventListener.status).toBe("up");
+  });
+
+  it("should return status 'down' when Soroban event listener is unhealthy", async () => {
+    mockPrismaQuery.mockResolvedValue([{ "?column?": 1 }]);
+    mockGetMongoDB.mockReturnValue(healthyMongo());
+    mockGetRabbitMQChannel.mockReturnValue({ ack: jest.fn() });
+    mockEventListenerHealth.status = "down";
+    mockEventListenerHealth.lastError = "Event listener disconnected";
+
+    const report = await getHealthReport();
+
+    expect(report.status).toBe("down");
+    expect(report.details.sorobanEventListener.status).toBe("down");
+    expect(report.details.sorobanEventListener.error).toBe(
+      "Event listener disconnected",
+    );
   });
 
   it("should include timestamp and uptime in the report", async () => {

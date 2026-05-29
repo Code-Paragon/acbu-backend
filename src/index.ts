@@ -7,6 +7,7 @@ import express, {
   type Response,
 } from "express";
 import helmet from "helmet";
+import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
 import { logger } from "./config/logger";
@@ -36,6 +37,10 @@ app.use(
   }),
 );
 app.use(corsMiddleware);
+
+// Compress all JSON/text responses to reduce bandwidth on large payloads
+app.use(compression());
+
 app.use(express.urlencoded({ extended: true }));
 
 // ── Webhook Content-Type validation ────────────────────────────────────────────
@@ -102,6 +107,11 @@ app.use(errorHandler);
 // Initialize connections and start server
 async function startServer() {
   try {
+    // Ensures schema is in sync before accepting traffic; prevents "table does not exist" on new columns.
+    logger.info("Applying Prisma migrations...");
+    execSync("npx prisma migrate deploy", { stdio: "inherit" });
+    logger.info("Prisma migrations applied successfully");
+
     // Connect to MongoDB (optional: server starts even if unreachable or MONGODB_URI empty)
     if (config.mongodbUri) {
       try {

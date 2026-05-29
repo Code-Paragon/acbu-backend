@@ -2,7 +2,7 @@
  * Consumes OTP_SEND and NOTIFICATIONS queues; sends email/SMS via NotificationService.
  */
 import type { ConsumeMessage } from "amqplib";
-import { connectRabbitMQ, QUEUES } from "../config/rabbitmq";
+import { connectRabbitMQ, QUEUES, assertQueueWithDLQ } from "../config/rabbitmq";
 import { logger } from "../config/logger";
 import { prisma } from "../config/database";
 import {
@@ -114,32 +114,47 @@ async function processNotification(
   logger.debug("Notification type not handled", { type });
 }
 
+const MAX_RETRIES = 5;
+
 export async function startNotificationConsumer(): Promise<void> {
   const ch = await connectRabbitMQ();
   ch.prefetch(2);
 
-  await ch.assertQueue(QUEUES.OTP_SEND, { durable: true });
+  await assertQueueWithDLQ(QUEUES.OTP_SEND);
   ch.consume(
     QUEUES.OTP_SEND,
     async (msg: ConsumeMessage | null) => {
       if (!msg) return;
+      const headers = msg.properties.headers ?? {};
+      const retries = typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
       try {
         const payload = JSON.parse(msg.content.toString()) as OtpSendPayload;
         await processOtpSend(payload);
         ch.ack(msg);
       } catch (e) {
         logger.error("OTP_SEND consumer error", { error: e });
-        ch.nack(msg, false, true);
+        if (retries >= MAX_RETRIES) {
+          logger.error("OTP_SEND failed permanently, sending to DLQ", { retries });
+          ch.nack(msg, false, false);
+          return;
+        }
+        ch.sendToQueue(QUEUES.OTP_SEND, msg.content, {
+          persistent: true,
+          headers: { ...headers, "x-retries": retries + 1 },
+        });
+        ch.ack(msg);
       }
     },
     { noAck: false },
   );
 
-  await ch.assertQueue(QUEUES.NOTIFICATIONS, { durable: true });
+  await assertQueueWithDLQ(QUEUES.NOTIFICATIONS);
   ch.consume(
     QUEUES.NOTIFICATIONS,
     async (msg: ConsumeMessage | null) => {
       if (!msg) return;
+      const headers = msg.properties.headers ?? {};
+      const retries = typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
       try {
         const payload = JSON.parse(
           msg.content.toString(),
@@ -148,7 +163,16 @@ export async function startNotificationConsumer(): Promise<void> {
         ch.ack(msg);
       } catch (e) {
         logger.error("NOTIFICATIONS consumer error", { error: e });
-        ch.nack(msg, false, true);
+        if (retries >= MAX_RETRIES) {
+          logger.error("NOTIFICATIONS failed permanently, sending to DLQ", { retries });
+          ch.nack(msg, false, false);
+          return;
+        }
+        ch.sendToQueue(QUEUES.NOTIFICATIONS, msg.content, {
+          persistent: true,
+          headers: { ...headers, "x-retries": retries + 1 },
+        });
+        ch.ack(msg);
       }
     },
     { noAck: false },

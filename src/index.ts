@@ -28,8 +28,8 @@ app.use(
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
         "img-src": ["'self'", "data:", "https://validator.swagger.io"],
-        "script-src": ["'self'", "'unsafe-inline'"],
-        "style-src": ["'self'", "https:", "'unsafe-inline'"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "https:"],
       },
     },
   }),

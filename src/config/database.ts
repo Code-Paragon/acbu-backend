@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { withAccelerate } from "@prisma/extension-accelerate";
 import { config } from "./env";
 import { logger } from "./logger";
@@ -52,6 +52,17 @@ const basePrisma = new PrismaClient({
   ],
 });
 
+// Retry config for connection pool exhaustion (Prisma Accelerate)
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 200;
+
+function isPoolExhaustionError(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return err.code === "P2024";
+  }
+  return false;
+}
+
 // OTel: wrap every Prisma query in a span so traces link DB calls to parent spans
 basePrisma.$use(async (params, next) => {
   const tracer = trace.getTracer("prisma");
@@ -73,6 +84,37 @@ basePrisma.$use(async (params, next) => {
       span.end();
     }
   });
+});
+
+// Connection pool exhaustion retry middleware: retry with exponential backoff
+// when Prisma Accelerate returns P2024 (connection pool timeout).
+// Retries up to MAX_RETRIES-1 times (attempt 1 = first try, attempt 4 throws).
+basePrisma.$use(async (params, next) => {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await next(params);
+    } catch (err) {
+      if (!isPoolExhaustionError(err)) {
+        throw err;
+      }
+      if (attempt < MAX_RETRIES) {
+        lastError = err;
+        const backoff = BASE_BACKOFF_MS * 2 ** (attempt - 1);
+        logger.warn("Prisma connection pool exhausted, retrying", {
+          model: params.model,
+          action: params.action,
+          attempt,
+          maxRetries: MAX_RETRIES,
+          backoffMs: backoff,
+        });
+        await new Promise((r) => setTimeout(r, backoff));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw lastError;
 });
 
 export const prisma = useAccelerate

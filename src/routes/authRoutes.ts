@@ -5,16 +5,15 @@ import {
   postIssueAdminKey,
   postIssueBreakGlassKey,
   postRevokePrivilegedKey,
+  postRefreshAccessToken,
+  postRevokeRefreshToken,
   postSignup,
   postSignin,
   postSignout,
   postVerify2fa,
 } from "../controllers/authController";
 import { validateApiKey } from "../middleware/auth";
-import {
-  authRateLimiter,
-  apiKeyRateLimiter,
-} from "../middleware/rateLimiter";
+import { authRateLimiter, apiKeyRateLimiter, twoFaRateLimiter } from "../middleware/rateLimiter";
 
 /**
  * @swagger
@@ -92,6 +91,7 @@ import {
  *                 type: string
  *                 minLength: 1
  *                 description: Username, email, or E.164 phone number
+ *                 example: "@alice"
  *               passcode:
  *                 type: string
  *                 minLength: 1
@@ -212,42 +212,22 @@ import {
 const router: ReturnType<typeof Router> = Router();
 
 router.post("/signup", authRateLimiter, postSignup);
-router.post("/signin", authRateLimiter, postSignin);
-router.post("/signin/verify-2fa", authRateLimiter, postVerify2fa);
+// #269: twoFaRateLimiter adds per-user/IP keyed limiting on top of the IP-only authRateLimiter
+router.post("/signin", authRateLimiter, twoFaRateLimiter, postSignin);
+router.post("/signin/verify-2fa", authRateLimiter, twoFaRateLimiter, postVerify2fa);
 
 // Signout requires API key
 router.post("/signout", validateApiKey, apiKeyRateLimiter, postSignout);
 
 // Privileged key lifecycle requires authenticated user + MFA challenge verification.
-router.post(
-  "/admin/challenge",
-  validateApiKey,
-  apiKeyRateLimiter,
-  postAdminMfaChallenge,
-);
-router.post(
-  "/keys/admin",
-  validateApiKey,
-  apiKeyRateLimiter,
-  postIssueAdminKey,
-);
-router.post(
-  "/keys/break-glass",
-  validateApiKey,
-  apiKeyRateLimiter,
-  postIssueBreakGlassKey,
-);
-router.get(
-  "/keys/privileged",
-  validateApiKey,
-  apiKeyRateLimiter,
-  getPrivilegedKeys,
-);
-router.post(
-  "/keys/:id/revoke",
-  validateApiKey,
-  apiKeyRateLimiter,
-  postRevokePrivilegedKey,
-);
+router.post("/admin/challenge", validateApiKey, apiKeyRateLimiter, postAdminMfaChallenge);
+router.post("/keys/admin", validateApiKey, apiKeyRateLimiter, postIssueAdminKey);
+router.post("/keys/break-glass", validateApiKey, apiKeyRateLimiter, postIssueBreakGlassKey);
+router.get("/keys/privileged", validateApiKey, apiKeyRateLimiter, getPrivilegedKeys);
+router.post("/keys/:id/revoke", validateApiKey, apiKeyRateLimiter, postRevokePrivilegedKey);
+
+// Refresh token endpoints
+router.post("/refresh-token", authRateLimiter, postRefreshAccessToken);
+router.post("/refresh-token/revoke", authRateLimiter, postRevokeRefreshToken);
 
 export default router;

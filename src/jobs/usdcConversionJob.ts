@@ -3,7 +3,7 @@
  * Updates transaction and reserve history; basket weight distribution uses BasketService.
  */
 import type { ConsumeMessage } from "amqplib";
-import { connectRabbitMQ, QUEUES } from "../config/rabbitmq";
+import { connectRabbitMQ, QUEUES, assertQueueWithDLQ } from "../config/rabbitmq";
 import { logger } from "../config/logger";
 import { prisma } from "../config/database";
 import { basketService } from "../services/basket";
@@ -11,6 +11,7 @@ import { getFintechRouter } from "../services/fintech";
 import { Decimal } from "@prisma/client/runtime/library";
 
 const QUEUE = QUEUES.USDC_CONVERSION;
+const MAX_RETRIES = 5;
 
 export interface UsdcConversionPayload {
   usdcAmount: string;
@@ -21,12 +22,14 @@ export interface UsdcConversionPayload {
 
 export async function startUsdcConversionConsumer(): Promise<void> {
   const ch = await connectRabbitMQ();
-  await ch.assertQueue(QUEUE, { durable: true });
+  await assertQueueWithDLQ(QUEUE);
   ch.prefetch(1);
   ch.consume(
     QUEUE,
     async (msg: ConsumeMessage | null) => {
       if (!msg) return;
+      const headers = msg.properties.headers ?? {};
+      const retries = typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
       try {
         const body = JSON.parse(
           msg.content.toString(),
@@ -82,7 +85,16 @@ export async function startUsdcConversionConsumer(): Promise<void> {
         ch.ack(msg);
       } catch (e) {
         logger.error("USDC conversion job failed", { error: e });
-        ch.nack(msg, false, true);
+        if (retries >= MAX_RETRIES) {
+          logger.error("USDC conversion job failed permanently, sending to DLQ", { retries });
+          ch.nack(msg, false, false);
+          return;
+        }
+        ch.sendToQueue(QUEUE, msg.content, {
+          persistent: true,
+          headers: { ...headers, "x-retries": retries + 1 },
+        });
+        ch.ack(msg);
       }
     },
     { noAck: false },
@@ -97,7 +109,7 @@ export async function enqueueUsdcConversion(
   payload: UsdcConversionPayload,
 ): Promise<void> {
   const ch = await connectRabbitMQ();
-  await ch.assertQueue(QUEUE, { durable: true });
+  await assertQueueWithDLQ(QUEUE);
   ch.sendToQueue(QUEUE, Buffer.from(JSON.stringify(payload)), {
     persistent: true,
   });

@@ -16,9 +16,10 @@ export const INVESTMENT_FORCED_REMOVAL_FEE_PERCENT = Number(
   process.env.INVESTMENT_FORCED_REMOVAL_FEE_PERCENT || "1",
 );
 
-export function isBusinessWithdrawalAllowedDate(
-  date: Date = new Date(),
-): boolean {
-  const day = date.getDate();
-  return INVESTMENT_BUSINESS_ALLOWED_DAYS.includes(day);
+export function isBusinessWithdrawalAllowedDay(dayOfMonth: number): boolean {
+  return INVESTMENT_BUSINESS_ALLOWED_DAYS.includes(dayOfMonth);
+}
+
+export function isBusinessWithdrawalAllowedDate(date: Date): boolean {
+  return isBusinessWithdrawalAllowedDay(date.getUTCDate());
 }

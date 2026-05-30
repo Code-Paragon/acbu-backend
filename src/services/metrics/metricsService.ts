@@ -6,7 +6,7 @@ import { prisma } from "../../config/database";
 import { logger } from "../../config/logger";
 import { basketService } from "../basket";
 import { fetchGdpUsd, fetchPopulation } from "./worldBankClient";
-import { BASKET_CURRENCIES } from "../../config/basket";
+import { BASKET_CURRENCIES, roundWeightsToExactBasisPoints } from "../../config/basket";
 import { Decimal } from "@prisma/client/runtime/library";
 
 const GDP_WEIGHT = 0.4;
@@ -136,12 +136,16 @@ export async function ingestMetricsAndProposeWeights(
   }
   const proposedWeights = normalizeToScores(proposedWeightRaw);
 
-  for (const [currency, weight] of proposedWeights) {
+  // Round and allocate to exact basis points to avoid rounding drift when
+  // storing as Decimal(5,2) in BasketConfig.
+  const rounded = roundWeightsToExactBasisPoints(proposedWeights);
+
+  for (const [currency, weight] of rounded) {
     await prisma.basketConfig.create({
       data: {
         effectiveFrom,
         currency,
-        weight: new Decimal(Math.round(weight * 100) / 100),
+        weight: new Decimal(Number(weight)),
         status: "proposed",
       },
     });

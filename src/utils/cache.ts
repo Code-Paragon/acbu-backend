@@ -170,3 +170,15 @@ export class CacheService {
 }
 
 export const cacheService = new CacheService();
+
+/**
+ * Sanitize a user-supplied string for safe use as a cache key segment.
+ * Strips null bytes and replaces characters that could act as delimiters
+ * or inject structure into composite keys (colons, slashes, whitespace).
+ */
+export function sanitizeKey(input: string): string {
+  return input
+    .replace(/\0/g, "") // null bytes
+    .replace(/[:/\\\s]/g, "_") // structural delimiters
+    .slice(0, 128); // cap length
+}

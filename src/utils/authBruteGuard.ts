@@ -1,4 +1,4 @@
-import { cacheService } from "./cache";
+import { cacheService, sanitizeKey } from "./cache";
 import { config } from "../config/env";
 import { logger } from "../config/logger";
 
@@ -80,11 +80,7 @@ export class AuthBruteGuard {
   }
 
   private getKey(identifier: string, ip: string): string {
-    // Combine identifier and IP for granular tracking.
-    // In some cases you might want to track them separately, but combining
-    // prevents a single IP from brute-forcing many accounts OR a single account
-    // from being targeted from many IPs (though the latter is harder to stop this way).
-    return `${KEY_PREFIX}${identifier}:${ip}`;
+    return `${KEY_PREFIX}${sanitizeKey(identifier)}:${sanitizeKey(ip)}`;
   }
 }
 

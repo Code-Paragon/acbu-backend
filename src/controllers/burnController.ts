@@ -41,7 +41,7 @@ function toNullableStringDecimal(v: unknown): string | null {
 function respondFromExistingBurnTx(
   res: Response,
   tx: any, // Using any to avoid type issues with Prisma client
-  blockchainTxHash: string,
+  blockchainTxHash: string | null | undefined,
 ): void {
   res.status(200).json({
     transaction_id: tx.id,
@@ -54,7 +54,7 @@ function respondFromExistingBurnTx(
       ({ acbu_ngn: null, timestamp: tx.createdAt.toISOString() } as const),
     status: tx.status,
     estimated_completion: null,
-    blockchain_tx_hash: blockchainTxHash,
+    blockchain_tx_hash: blockchainTxHash ?? undefined,
   });
 }
 
@@ -93,6 +93,26 @@ export async function burnAcbu(
     }
     const { acbu_amount, currency, recipient_account, blockchain_tx_hash } =
       parsed.data;
+
+    const idempotencyKey = extractIdempotencyKey(req);
+    if (idempotencyKey) {
+      const existingBurn = await prisma.transaction.findFirst({
+        where: {
+          idempotencyKey,
+          type: "burn",
+          userId: req.apiKey?.userId ?? undefined,
+          organizationId: req.apiKey?.organizationId ?? undefined,
+        },
+      });
+      if (existingBurn) {
+        respondFromExistingBurnTx(
+          res,
+          existingBurn,
+          existingBurn.blockchainTxHash ?? blockchain_tx_hash ?? null,
+        );
+        return;
+      }
+    }
 
     const addresses = getContractAddresses();
     const burningEnabled = Boolean(addresses.burning);
@@ -154,6 +174,7 @@ export async function burnAcbu(
         data: {
           userId: req.apiKey?.userId ?? undefined,
           organizationId: req.apiKey?.organizationId ?? undefined,
+          idempotencyKey,
           type: "burn",
           status: "pending",
           acbuAmountBurned: new Decimal(acbuNum),
@@ -170,6 +191,29 @@ export async function burnAcbu(
         },
       });
     } catch (createError) {
+      if (
+        idempotencyKey &&
+        createError instanceof Prisma.PrismaClientKnownRequestError &&
+        createError.code === "P2002"
+      ) {
+        const existing = await prisma.transaction.findFirst({
+          where: {
+            idempotencyKey,
+            type: "burn",
+            userId: req.apiKey?.userId ?? undefined,
+            organizationId: req.apiKey?.organizationId ?? undefined,
+          },
+        });
+        if (existing) {
+          respondFromExistingBurnTx(
+            res,
+            existing,
+            existing.blockchainTxHash ?? blockchain_tx_hash ?? null,
+          );
+          return;
+        }
+      }
+
       const isDuplicateBurnHash =
         burningEnabled &&
         Boolean(blockchain_tx_hash) &&

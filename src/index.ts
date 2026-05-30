@@ -1,42 +1,79 @@
 import { initTracing } from "./config/tracing";
 initTracing();
 
-import express from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import helmet from "helmet";
+import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
 import { logger } from "./config/logger";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
+import { prisma } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
-import { errorHandler } from "./middleware/errorHandler";
+import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
+import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 
 const app: express.Express = express();
+const MAX_REQUEST_BODY_SIZE = "1mb";
 
 // Security middleware
 app.use(
   helmet({
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+    },
     contentSecurityPolicy: {
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
         "img-src": ["'self'", "data:", "https://validator.swagger.io"],
-        "script-src": ["'self'", "'unsafe-inline'"],
-        "style-src": ["'self'", "https:", "'unsafe-inline'"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "https:"],
       },
     },
   }),
 );
 app.use(corsMiddleware);
-app.use(express.urlencoded({ extended: true }));
+
+// Compress all JSON/text responses to reduce bandwidth on large payloads
+app.use(compression());
+
+app.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
+
+// ── Webhook Content-Type validation ────────────────────────────────────────────
+// Must check Content-Type BEFORE raw body parser, since non-JSON bodies would
+// bypass parsing and cause unexpected behavior in signature verification.
+function validateWebhookContentType(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void {
+  if (!req.is("application/json")) {
+    return next(
+      new AppError(
+        "Content-Type must be application/json",
+        415,
+        "INVALID_CONTENT_TYPE",
+      ),
+    );
+  }
+  next();
+}
 
 // Webhooks need raw body for signature verification; mount before json()
 app.use(
   `/${config.apiVersion}/webhooks`,
+  validateWebhookContentType,
   express.raw({ type: "application/json" }),
   (req: express.Request, res: express.Response, next) => {
     const raw = req.body as Buffer;
@@ -51,7 +88,20 @@ app.use(
   },
   webhookRoutes,
 );
-app.use(express.json());
+app.use(express.json({ limit: MAX_REQUEST_BODY_SIZE }));
+
+app.use((err: Error & { type?: string }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err?.type === "entity.too.large") {
+    res.status(413).json({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Request body exceeds maximum allowed size",
+      },
+    });
+    return;
+  }
+  next(err);
+});
 
 // Logging
 app.use(requestLogger);
@@ -77,6 +127,11 @@ app.use(errorHandler);
 // Initialize connections and start server
 async function startServer() {
   try {
+    // Ensures schema is in sync before accepting traffic; prevents "table does not exist" on new columns.
+    logger.info("Applying Prisma migrations...");
+    execSync("npx prisma migrate deploy", { stdio: "inherit" });
+    logger.info("Prisma migrations applied successfully");
+
     // Connect to MongoDB (optional: server starts even if unreachable or MONGODB_URI empty)
     if (config.mongodbUri) {
       try {
@@ -168,7 +223,8 @@ async function startServer() {
       await startInvestmentWithdrawalScheduler();
 
       // Start yield accrual scheduler (run once at startup to seed accruals)
-      const { startYieldAccrualScheduler } = await import("./jobs/yieldAccrualJob");
+      const { startYieldAccrualScheduler } =
+        await import("./jobs/yieldAccrualJob");
       await startYieldAccrualScheduler();
 
       // Start weekly weight drift audit job (Monday 00:00 UTC)
@@ -202,11 +258,12 @@ async function startServer() {
     void eventListener.start();
 
     // Mark application as ready for health checks
-    const { markStartupComplete } = await import("./services/health/healthService");
+    const { markStartupComplete } =
+      await import("./services/health/healthService");
     markStartupComplete();
 
     // Start HTTP server
-    app.listen(config.port, () => {
+    const server = app.listen(config.port, () => {
       logger.info(`Server running on port ${config.port}`);
       logger.info(`Environment: ${config.nodeEnv}`);
       logger.info(`API Version: ${config.apiVersion}`);
@@ -216,24 +273,15 @@ async function startServer() {
         );
       }
     });
+    setHttpServer(server);
   } catch (error) {
     logger.error("Failed to start server", error);
     process.exit(1);
   }
 }
 
-// Handle graceful shutdown
-const shutdown = async () => {
-  logger.info("Shutting down gracefully...");
-  await disconnectMongoDB();
-  await disconnectRabbitMQ();
-  process.exit(0);
-};
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
-
 if (require.main === module) {
+  registerGracefulShutdown();
   void startServer();
 }
 

@@ -35,4 +35,23 @@ describe("env validation", () => {
     expect(typeof config.port).toBe("number");
     expect(config.port).toBe(3000);
   });
+
+  it("accepts valid LOG_LEVEL values", () => {
+    process.env.LOG_LEVEL = "debug";
+    const { config } = require("../src/config/env");
+    expect(config.logLevel).toBe("debug");
+  });
+
+  it("throws when LOG_LEVEL is invalid", () => {
+    process.env.LOG_LEVEL = "invalid_level";
+    expect(() => require("../src/config/env")).toThrow(/LOG_LEVEL/);
+  });
+
+  it("throws when CORS_ORIGIN contains wildcard", () => {
+    process.env.CORS_ORIGIN = "*";
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("../src/config/env");
+    }).toThrow(/wildcard/i);
+  });
 });

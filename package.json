@@ -20,10 +20,10 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node prisma/seed.ts",
-    "backfill:org-limits": "ts-node prisma/backfillOrgTransactionContext.ts",
-    "stellar:create-wallet": "ts-node scripts/create-stellar-wallet.ts",
-    "compute:basket-weights": "ts-node scripts/compute-basket-weights.ts",
+    "prisma:seed": "ts-node --transpile-only prisma/seed.ts",
+    "backfill:org-limits": "ts-node --transpile-only prisma/backfillOrgTransactionContext.ts",
+    "stellar:create-wallet": "ts-node --transpile-only scripts/create-stellar-wallet.ts",
+    "compute:basket-weights": "ts-node --transpile-only scripts/compute-basket-weights.ts",
     "postinstall": "prisma generate && tsc -p tsconfig.build.json"
   },
   "keywords": [
@@ -60,6 +60,7 @@
     "amqplib": "^0.10.3",
     "axios": "^1.6.0",
     "bcryptjs": "^3.0.3",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "decimal.js": "^10.6.0",
     "dotenv": "^16.4.5",
@@ -81,6 +82,7 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
+    "@types/compression": "^1.8.1",
     "@types/jest": "^29.5.11",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.11.5",

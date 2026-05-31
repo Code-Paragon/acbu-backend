@@ -5,7 +5,9 @@
     "version": "1.0.0",
     "description": "API documentation for ACBU (African Currency Basket Unit) platform",
     "contact": {
-      "name": "ACBU Support"
+      "name": "ACBU Support",
+      "email": "support@acbu.example.com",
+      "url": "https://acbu.example.com"
     }
   },
   "servers": [
@@ -37,9 +39,7 @@
     "/v1/reserves": {
       "get": {
         "summary": "Get current reserve status",
-        "tags": [
-          "Reserves"
-        ],
+        "tags": ["Reserves"],
         "security": [
           {
             "ApiKeyAuth": []
@@ -54,19 +54,24 @@
                   "type": "object",
                   "properties": {
                     "totalAcbuSupply": {
-                      "type": "number"
+                      "type": "number",
+                      "example": 1000000
                     },
                     "totalReserveValueUsd": {
-                      "type": "number"
+                      "type": "number",
+                      "example": 1500000
                     },
                     "overcollateralizationRatio": {
-                      "type": "number"
+                      "type": "number",
+                      "example": 1.5
                     },
                     "reserveHealth": {
-                      "type": "string"
+                      "type": "string",
+                      "example": "healthy"
                     },
                     "currencies": {
-                      "type": "array"
+                      "type": "array",
+                      "example": ["USD", "EUR", "NGN"]
                     }
                   }
                 }
@@ -79,9 +84,7 @@
     "/v1/reserves/track": {
       "post": {
         "summary": "Manually trigger reserve tracking",
-        "tags": [
-          "Reserves"
-        ],
+        "tags": ["Reserves"],
         "security": [
           {
             "ApiKeyAuth": []

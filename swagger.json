@@ -5,9 +5,7 @@
     "version": "1.0.0",
     "description": "API documentation for ACBU (African Currency Basket Unit) platform",
     "contact": {
-      "name": "ACBU Support",
-      "email": "support@acbu.example.com",
-      "url": "https://acbu.example.com"
+      "name": "ACBU Support"
     }
   },
   "servers": [
@@ -54,24 +52,19 @@
                   "type": "object",
                   "properties": {
                     "totalAcbuSupply": {
-                      "type": "number",
-                      "example": 1000000
+                      "type": "number"
                     },
                     "totalReserveValueUsd": {
-                      "type": "number",
-                      "example": 1500000
+                      "type": "number"
                     },
                     "overcollateralizationRatio": {
-                      "type": "number",
-                      "example": 1.5
+                      "type": "number"
                     },
                     "reserveHealth": {
-                      "type": "string",
-                      "example": "healthy"
+                      "type": "string"
                     },
                     "currencies": {
-                      "type": "array",
-                      "example": ["USD", "EUR", "NGN"]
+                      "type": "array"
                     }
                   }
                 }

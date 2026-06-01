@@ -8,7 +8,7 @@ import type {
   Store,
 } from "express-rate-limit";
 import { AuthRequest } from "./auth";
-import { cacheService } from "../utils/cache";
+import { cacheService, sanitizeKey } from "../utils/cache";
 import { logger } from "../config/logger";
 import { ErrorCodes } from "../types/errorCodes";
 import { circuitBreaker } from "../utils/circuitBreaker";
@@ -77,7 +77,7 @@ const enforceFallbackLimit = (
   const ip = req.ip || "unknown";
   const now = Date.now();
   const windowId = Math.floor(now / FALLBACK_WINDOW_MS);
-  const cacheKey = `fallback:ip:${ip}:${windowId}`;
+  const cacheKey = `fallback:ip:${sanitizeKey(ip)}:${windowId}`;
 
   const result = incrementFallback(cacheKey, FALLBACK_WINDOW_MS);
 
@@ -269,7 +269,7 @@ export const apiKeyRateLimiter = async (
   const maxRequests = req.apiKey.rateLimit || config.rateLimitMaxRequests;
   const windowMs = config.rateLimitWindowMs;
   const windowId = Math.floor(Date.now() / windowMs);
-  const cacheKey = `rate_limit:api_key:${req.apiKey.id}:${windowId}`;
+  const cacheKey = `rate_limit:api_key:${sanitizeKey(req.apiKey.id)}:${windowId}`;
 
   // Check circuit breaker state - if OPEN, use fallback immediately
   if (!circuitBreaker.canExecute()) {

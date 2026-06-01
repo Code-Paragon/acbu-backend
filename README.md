@@ -276,7 +276,7 @@ The CI pipeline:
 2. Make your changes
 3. Run tests and linter: `pnpm test && pnpm lint`
 4. Commit and push
-5. Create a pull request
+5. Create a pull request (prefer relative references like `#123` instead of hardcoded `github.com/<owner>/...` links)
 
 ## License
 

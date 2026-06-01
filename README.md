@@ -270,6 +270,11 @@ The CI pipeline:
 - Validates database migrations
 - Blocks destructive Prisma migrations unless the pull request carries the `allow-destructive-migration` label
 
+## Recent Changes
+
+### Features
+- **Transfer service** (b6b7036): Implemented `createTransfer` in `transferService.ts` with input validation, KYC checks, and blockchain transaction handling, along with full unit test coverage in `tests/transfer.test.ts`
+
 ## Contributing
 
 1. Create a feature branch

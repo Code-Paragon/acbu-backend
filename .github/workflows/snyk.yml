@@ -1,0 +1,61 @@
+name: Snyk Dependency Scan
+
+on:
+  schedule:
+    - cron: '0 4 1 * *'
+  workflow_dispatch: {}
+  push:
+    branches: [main, dev, develop]
+  pull_request:
+    branches: [main, dev, develop]
+
+jobs:
+  snyk-scan:
+    runs-on: ubuntu-latest
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+    steps:
+      - name: Decide whether Snyk can run
+        id: gate
+        shell: bash
+        run: |
+          if [[ -z "${SNYK_TOKEN}" ]]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Snyk scan because SNYK_TOKEN is not configured."
+          elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.head.repo.fork }}" == "true" ]]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Snyk scan because secrets are unavailable to fork pull requests."
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.should_run == 'true'
+
+      - uses: pnpm/action-setup@v4
+        if: steps.gate.outputs.should_run == 'true'
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.should_run == 'true'
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        if: steps.gate.outputs.should_run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Snyk CLI
+        if: steps.gate.outputs.should_run == 'true'
+        run: npm install -g snyk
+
+      - name: Run Snyk test
+        if: steps.gate.outputs.should_run == 'true'
+        run: snyk test --severity-threshold=high
+
+      - name: Skip summary
+        if: steps.gate.outputs.should_run != 'true'
+        run: echo "Snyk scan skipped for this event."

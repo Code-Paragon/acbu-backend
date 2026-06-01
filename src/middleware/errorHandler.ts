@@ -7,17 +7,20 @@ export class AppError extends Error {
   isOperational: boolean;
   details?: unknown;
 
-  constructor(message: string, statusCode: number, codeOrDetails?: string | unknown, details?: unknown) {
+  constructor(
+    message: string,
+    statusCode: number,
+    codeOrDetails?: string | unknown,
+    details?: unknown,
+  ) {
     super(message);
     this.statusCode = statusCode;
-    if (typeof codeOrDetails === "string") {
-      this.code = codeOrDetails;
-      this.details = details;
-    } else {
-      this.code = "ERROR";
-      this.details = codeOrDetails as unknown;
-    }
+    this.code =
+      typeof codeOrDetails === "string" ? codeOrDetails : "APP_ERROR";
+    this.details =
+      typeof codeOrDetails === "string" ? details : codeOrDetails;
     this.isOperational = true;
+    Object.setPrototypeOf(this, new.target.prototype);
     Error.captureStackTrace(this, this.constructor);
   }
 }
@@ -36,6 +39,19 @@ function sanitizeForLog(err: Error, req: Request) {
     method: req.method,
     ...(isProduction ? {} : { stack: err.stack }),
   };
+}
+
+function summarizeErrorDetails(details: unknown): unknown {
+  if (!details) return undefined;
+  if (typeof details === "string") return "REDACTED_STRING_DETAILS";
+  if (Array.isArray(details)) return { type: "array", count: details.length };
+  if (typeof details === "object") {
+    return {
+      type: "object",
+      keys: Object.keys(details as Record<string, unknown>).slice(0, 10),
+    };
+  }
+  return "REDACTED_NON_OBJECT_DETAILS";
 }
 
 export const errorHandler = (
@@ -63,7 +79,7 @@ export const errorHandler = (
       code: err.code,
       path: req.path,
       method: req.method,
-      details: err.details,
+      details: summarizeErrorDetails(err.details),
     });
 
     res.status(err.statusCode).json({

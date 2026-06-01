@@ -1,4 +1,3 @@
 export function initTracing(): void {
-	// No-op tracing initialization for environments without tracing configured
-	return;
+  // Tracing is optional in this workspace; callers can safely invoke this noop.
 }

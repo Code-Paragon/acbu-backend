@@ -4,8 +4,8 @@
  * Uses high-precision Decimal math to avoid floating-point rounding errors.
  */
 
-import { prisma } from "../../config/database";
 import { Decimal } from "@prisma/client/runtime/library";
+import { getLatestAcbuRate } from "./acbuRateCache";
 import { AppError } from "../../middleware/errorHandler";
 
 /**
@@ -78,9 +78,7 @@ export async function convertLocalToUsd(
   }
 
   // Fetch the latest exchange rates
-  const latestRate = await prisma.acbuRate.findFirst({
-    orderBy: { timestamp: "desc" },
-  });
+  const latestRate = await getLatestAcbuRate().catch(() => null);
 
   if (!latestRate) {
     throw new AppError(
@@ -107,7 +105,7 @@ export async function convertLocalToUsd(
   const rateDecimal = new Decimal(localToAcbuRate);
 
   // Calculate ACBU equivalent
-  const acbuAmount = localAmountDecimal.dividedBy(rateDecimal);
+  const acbuAmount = localAmountDecimal.div(rateDecimal);
 
   // Get USD rate per ACBU
   const acbuUsdRate = new Decimal(latestRate.acbuUsd);
@@ -120,10 +118,10 @@ export async function convertLocalToUsd(
   }
 
   // Convert ACBU to USD
-  const usdAmount = acbuAmount.toNumber() * acbuUsdRate.toNumber();
+  const usdAmount = acbuAmount.mul(acbuUsdRate);
 
   // Return as number with precision
-  return Number(usdAmount);
+  return usdAmount.toNumber();
 }
 
 /**
@@ -137,7 +135,11 @@ export async function convertLocalToUsd(
 export async function convertLocalToUsdWithPrecision(
   localAmount: string | number,
   currency: string,
-): Promise<{ usdAmount: number; originalAmount: Decimal; acbuEquivalent: Decimal }> {
+): Promise<{
+  usdAmount: number;
+  originalAmount: Decimal;
+  acbuEquivalent: Decimal;
+}> {
   // Validate currency is supported
   if (!CURRENCY_TO_RATE_FIELD[currency]) {
     throw new AppError(
@@ -147,9 +149,7 @@ export async function convertLocalToUsdWithPrecision(
   }
 
   // Fetch the latest exchange rates
-  const latestRate = await prisma.acbuRate.findFirst({
-    orderBy: { timestamp: "desc" },
-  });
+  const latestRate = await getLatestAcbuRate().catch(() => null);
 
   if (!latestRate) {
     throw new AppError(
@@ -176,7 +176,7 @@ export async function convertLocalToUsdWithPrecision(
   const rateDecimal = new Decimal(localToAcbuRate);
 
   // Calculate ACBU equivalent
-  const acbuAmount = localAmountDecimal.dividedBy(rateDecimal);
+  const acbuAmount = localAmountDecimal.div(rateDecimal);
 
   // Get USD rate per ACBU
   const acbuUsdRate = new Decimal(latestRate.acbuUsd);
@@ -189,10 +189,10 @@ export async function convertLocalToUsdWithPrecision(
   }
 
   // Convert ACBU to USD
-  const usdAmount = acbuAmount.toNumber() * acbuUsdRate.toNumber();
+  const usdAmount = acbuAmount.mul(acbuUsdRate);
 
   return {
-    usdAmount: Number(usdAmount),
+    usdAmount: usdAmount.toNumber(),
     originalAmount: localAmountDecimal,
     acbuEquivalent: acbuAmount,
   };

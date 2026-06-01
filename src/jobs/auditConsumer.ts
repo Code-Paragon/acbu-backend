@@ -11,6 +11,7 @@ export async function startAuditConsumer() {
 
   await assertQueueWithDLQ(QUEUES.AUDIT_LOGS, { durable: true });
 
+  channel.prefetch(1);
   channel.consume(QUEUES.AUDIT_LOGS, async (msg) => {
     if (!msg) return;
 
@@ -65,7 +66,7 @@ export async function startAuditConsumer() {
         }
       }
     }
-  });
+  }, { noAck: false });
 
   logger.info("Audit consumer started");
 }

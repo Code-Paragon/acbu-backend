@@ -71,12 +71,14 @@ export function verifyFlutterwaveSignature(
 
   const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
   if (!rawBody || !Buffer.isBuffer(rawBody)) {
-    throw new AppError("Raw body required for verification", 400, "BAD_REQUEST");
+    res.status(400).json({ error: "Raw body required for verification" });
+    return;
   }
 
   const received = req.headers["verif-hash"] as string | undefined;
   if (!received) {
-    throw new AppError("Missing verif-hash header", 401, "UNAUTHORIZED");
+    res.status(401).json({ error: "Missing verif-hash header" });
+    return;
   }
 
   const computed = crypto
@@ -98,8 +100,12 @@ export function verifyFlutterwaveSignature(
       signatureValid = false;
     }
   }
+  if (signatureValid) {
+    next();
+    return;
+  }
   logger.warn("Flutterwave webhook signature mismatch");
-  throw new AppError("Invalid signature", 401, "UNAUTHORIZED");
+  res.status(401).json({ error: "Invalid signature" });
 }
 
 // ── Paystack Webhook ────────────────────────────────────────────────────────
@@ -138,12 +144,14 @@ export function verifyPaystackSignature(
 
   const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
   if (!rawBody || !Buffer.isBuffer(rawBody)) {
-    throw new AppError("Raw body required for verification", 400, "BAD_REQUEST");
+    res.status(400).json({ error: "Raw body required for verification" });
+    return;
   }
 
   const received = req.headers["x-paystack-signature"] as string | undefined;
   if (!received) {
-    throw new AppError("Missing x-paystack-signature header", 401, "UNAUTHORIZED");
+    res.status(401).json({ error: "Missing x-paystack-signature header" });
+    return;
   }
 
   const computed = crypto
@@ -170,8 +178,7 @@ export function verifyPaystackSignature(
     res.status(401).json({ error: "Invalid signature" });
     return;
   }
-  logger.warn("Paystack webhook signature mismatch");
-  throw new AppError("Invalid signature", 401, "UNAUTHORIZED");
+  next();
 }
 
 /**

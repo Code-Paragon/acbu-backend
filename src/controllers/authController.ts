@@ -4,9 +4,12 @@ import { AuthRequest } from "../middleware/auth";
 import {
   issueAdminKey,
   issueBreakGlassKey,
+  issueRefreshToken,
   listPrivilegedKeys,
+  refreshAccessToken,
   requestAdminMfaChallenge,
   revokePrivilegedKey,
+  revokeRefreshToken,
   signin,
   signup,
   verify2fa,
@@ -18,6 +21,7 @@ export const signinSchema = z.object({
   identifier: z.string().min(1, "identifier is required"),
   passcode: z.string().min(1, "passcode is required"),
   captcha_token: z.string().optional(),
+  issue_refresh_token: z.boolean().optional(),
 });
 
 export const signupSchema = z.object({
@@ -28,6 +32,7 @@ export const signupSchema = z.object({
 export const verify2faSchema = z.object({
   challenge_token: z.string().min(1, "challenge_token is required"),
   code: z.string().min(1, "code is required"),
+  issue_refresh_token: z.boolean().optional(),
 });
 
 const issueAdminKeySchema = z.object({
@@ -48,6 +53,22 @@ const issueBreakGlassKeySchema = z.object({
 const revokePrivilegedKeySchema = z.object({
   reason: z.string().min(1, "reason is required").max(255),
 });
+
+const refreshAccessTokenSchema = z.object({
+  refresh_token: z.string().min(1, "refresh_token is required"),
+});
+
+const revokeRefreshTokenSchema = z.object({
+  refresh_token: z.string().min(1, "refresh_token is required"),
+});
+
+function getRequestIp(req: AuthRequest): string {
+  const connection = (req as AuthRequest & {
+    connection?: { remoteAddress?: string | null };
+  }).connection;
+
+  return req.ip || req.socket?.remoteAddress || connection?.remoteAddress || "unknown";
+}
 
 /**
  * POST /auth/signup
@@ -94,8 +115,9 @@ export async function postSignin(
     const result = await signin({
       identifier: body.identifier.trim(),
       passcode: body.passcode,
-      ip: req.ip || req.socket.remoteAddress || "unknown",
+      ip: getRequestIp(req),
       captchaToken: body.captcha_token,
+      issueRefreshToken: body.issue_refresh_token,
     });
     if ("requires_2fa" in result) {
       res
@@ -112,6 +134,9 @@ export async function postSignin(
     if (result.passphrase) payload.passphrase = result.passphrase;
     if (result.encryption_method_required)
       payload.encryption_method_required = true;
+    if (result.refresh_token) payload.refresh_token = result.refresh_token;
+    if (result.refresh_token_expires_at)
+      payload.refresh_token_expires_at = result.refresh_token_expires_at;
     res.status(200).json(payload);
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -173,7 +198,8 @@ export async function postVerify2fa(
     const result = await verify2fa({
       challenge_token: body.challenge_token,
       code: body.code,
-      ip: req.ip || req.socket.remoteAddress || "unknown",
+      ip: getRequestIp(req),
+      issueRefreshToken: body.issue_refresh_token,
     });
     const payload: Record<string, unknown> = {
       api_key: result.api_key,
@@ -184,6 +210,9 @@ export async function postVerify2fa(
     if (result.passphrase) payload.passphrase = result.passphrase;
     if (result.encryption_method_required)
       payload.encryption_method_required = true;
+    if (result.refresh_token) payload.refresh_token = result.refresh_token;
+    if (result.refresh_token_expires_at)
+      payload.refresh_token_expires_at = result.refresh_token_expires_at;
     res.status(200).json(payload);
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -432,6 +461,64 @@ export async function postRevokePrivilegedKey(
       }
       if (e.message === "Reason is required") {
         return next(new AppError(e.message, 400));
+      }
+    }
+    next(e);
+  }
+}
+
+/**
+ * POST /auth/refresh-token
+ * Refresh access token using refresh token with family rotation.
+ */
+export async function postRefreshAccessToken(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const body = refreshAccessTokenSchema.parse(req.body);
+    const result = await refreshAccessToken({
+      refresh_token: body.refresh_token,
+    });
+    res.status(200).json(result);
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      const msg = e.errors.map((x) => x.message).join("; ");
+      return next(new AppError(msg, 400));
+    }
+    if (e instanceof Error) {
+      if (e.message === "Invalid or expired refresh token") {
+        return next(new AppError(e.message, 401));
+      }
+    }
+    next(e);
+  }
+}
+
+/**
+ * POST /auth/refresh-token/revoke
+ * Revoke a refresh token and its entire family.
+ */
+export async function postRevokeRefreshToken(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const body = revokeRefreshTokenSchema.parse(req.body);
+    const result = await revokeRefreshToken({
+      refresh_token: body.refresh_token,
+    });
+    res.status(200).json(result);
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      const msg = e.errors.map((x) => x.message).join("; ");
+      return next(new AppError(msg, 400));
+    }
+    if (e instanceof Error) {
+      if (e.message === "Invalid refresh token") {
+        return next(new AppError(e.message, 401));
       }
     }
     next(e);

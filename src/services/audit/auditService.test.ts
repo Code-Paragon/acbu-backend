@@ -66,21 +66,21 @@ describe("AuditService Reliability (RabbitMQ)", () => {
       .mockImplementation(() => {});
     const existsSyncSpy = jest.spyOn(fs, "existsSync").mockReturnValue(true);
 
-    await logAudit({
-      eventType: "auth",
-      action: "admin_key_issued",
-      keyType: "ADMIN_KEY",
-      performedBy: "user-1",
-      actorType: "sme",
-      // organizationId and reason intentionally missing
-    });
+    await expect(
+      logAudit({
+        eventType: "auth",
+        action: "admin_key_issued",
+        keyType: "ADMIN_KEY",
+        performedBy: "user-1",
+        actorType: "sme",
+        // organizationId and reason intentionally missing
+      }),
+    ).rejects.toThrow(
+      "Admin audit entries require performedBy, actorType, organizationId, and reason",
+    );
 
     expect(mockChannel.sendToQueue).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("RabbitMQ audit publish failed"),
-      expect.anything(),
-    );
-    expect(appendFileSyncSpy).toHaveBeenCalled();
+    expect(appendFileSyncSpy).not.toHaveBeenCalled();
 
     appendFileSyncSpy.mockRestore();
     existsSyncSpy.mockRestore();
@@ -120,8 +120,8 @@ describe("AuditService Reliability (RabbitMQ)", () => {
 
     await logAudit(entry);
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("RabbitMQ audit publish failed"),
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("Audit publish failed after 3 retries"),
       expect.anything(),
     );
     expect(appendFileSyncSpy).toHaveBeenCalled();
@@ -152,7 +152,11 @@ describe("AuditService Reliability (RabbitMQ)", () => {
     await logAudit(entry);
 
     expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining("CRITICAL: Audit logging failed"),
+      expect.stringContaining("Audit publish failed after 3 retries"),
+      expect.anything(),
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("CRITICAL: Audit outbox write failed"),
       expect.anything(),
     );
     expect(appendFileSyncSpy).toHaveBeenCalled();

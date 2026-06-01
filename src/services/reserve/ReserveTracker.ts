@@ -158,7 +158,8 @@ export class ReserveTracker {
           if (onChainAmountAtomic === null) {
             // Fallback path (non-custodial deployments with real fintech partners).
             balance = await withRetry(
-              () => fintechRouter.getProvider(currency).then((p) => p.getBalance(currency)),
+              async () =>
+                (await fintechRouter.getProvider(currency)).getBalance(currency),
               `getBalance(${currency})`,
             );
             const rate = await withRetry(
@@ -410,24 +411,27 @@ export class ReserveTracker {
    * Get total ACBU supply from blockchain.
    * Queries Horizon to get the actual amount in circulation, preventing divergence from internal tracking.
    */
-  
   /**
    * Get total ACBU supply with reconciliation between DB Ledger and Blockchain.
    */
   private async getTotalAcbuSupply(): Promise<number> {
     const ledgerSupply = await this.getTotalAcbuSupplyFromLedger();
-    
+
     const issuer = process.env.STELLAR_ACBU_ASSET_ISSUER;
-    const assetCode = process.env.STELLAR_ACBU_ASSET_CODE || 'ACBU';
+    const assetCode = process.env.STELLAR_ACBU_ASSET_CODE || "ACBU";
 
     if (!issuer) {
-      logger.warn('ACBU issuer not configured. Using ledger supply.');
+      logger.warn("ACBU issuer not configured. Using ledger supply.");
       return ledgerSupply;
     }
 
     try {
       const server = stellarClient.getServer();
-      const assets = await server.assets().forCode(assetCode).forIssuer(issuer).call();
+      const assets = await server
+        .assets()
+        .forCode(assetCode)
+        .forIssuer(issuer)
+        .call();
 
       if (assets.records.length === 0) {
         return ledgerSupply;
@@ -438,16 +442,22 @@ export class ReserveTracker {
       const driftThreshold = 0.01;
 
       if (delta > driftThreshold) {
-        logger.warn('RESERVE DRIFT DETECTED: DB Ledger and On-Chain supply diverge', {
-          ledgerSupply,
-          onChainSupply,
-          delta,
-        });
+        logger.warn(
+          "RESERVE DRIFT DETECTED: DB Ledger and On-Chain supply diverge",
+          {
+            ledgerSupply,
+            onChainSupply,
+            delta,
+          },
+        );
       }
 
       return onChainSupply;
     } catch (e) {
-      logger.error('Failed to query Stellar for ACBU total supply, falling back to ledger', { error: e });
+      logger.error(
+        "Failed to query Stellar for ACBU total supply, falling back to ledger",
+        { error: e },
+      );
       return ledgerSupply;
     }
   }

@@ -1,7 +1,12 @@
 export {
   getInvestmentSavingsReserveValueUsd,
   computeDeployableAllocation,
+  getStrategyAllocation,
+  allocateToStrategy,
+  deallocateFromStrategy,
+  PolicyViolationError,
   type AllocationSummary,
+  type StrategyAllocation,
 } from "./allocationService";
 export {
   recordYield,
@@ -10,3 +15,4 @@ export {
   type YieldCredit,
   type YieldSource,
 } from "./yieldAccountingService";
+export { accrueFromStrategies } from "./yieldAccountingService";

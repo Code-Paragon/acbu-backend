@@ -4,19 +4,14 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false
-    ,"moduleResolution": "node"
-    ,"noUnusedLocals": false
-    ,"noUnusedParameters": false
   },
   "include": ["src/**/*.ts"],
   "exclude": [
     "node_modules",
     "dist",
-    "src/**/*.test.ts",
-    "src/**/__tests__/**",
-    "src/**/*.spec.ts",
-    "src/services/enterpriseService.ts",
-    "src/controllers/enterpriseController.ts",
-    "src/routes/enterpriseRoutes.ts"
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/__tests__/**",
+    "**/__mocks__/**"
   ]
 }

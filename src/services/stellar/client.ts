@@ -33,6 +33,7 @@ export class StellarClient {
     const horizonUrl = cfg?.horizonUrl ?? config.stellar.horizonUrl;
     const networkPassphrase =
       cfg?.networkPassphrase ??
+      config.stellar.networkPassphrase ??
       (network === "testnet"
         ? "Test SDF Network ; September 2015"
         : "Public Global Stellar Network ; September 2015");
@@ -198,6 +199,71 @@ export class StellarClient {
   }
 
   /**
+   * Build, sign, and submit a transaction with automatic retry for sequence number drift
+   */
+  async buildAndSubmitTransaction(
+    sourceAccountId: string,
+    operations: Operation[],
+    options?: {
+      fee?: string;
+      timebounds?: { minTime: number; maxTime: number };
+    },
+  ) {
+    let attempt = 0;
+    const maxAttempts = 2;
+
+    while (attempt < maxAttempts) {
+      try {
+        const transaction = await this.buildTransaction(
+          sourceAccountId,
+          operations,
+          options,
+        );
+        const result = await this.server.submitTransaction(transaction);
+        logger.info("Transaction submitted", {
+          hash: result.hash,
+          ledger: result.ledger,
+          attempt: attempt + 1,
+        });
+        return result;
+      } catch (error: any) {
+        attempt++;
+
+        // Check if this is a tx_bad_seq error
+        const isBadSeqError =
+          error.response?.data?.extras?.result_codes?.operations?.[0] ===
+            "tx_bad_seq" ||
+          error.message?.includes("tx_bad_seq");
+
+        if (isBadSeqError && attempt < maxAttempts) {
+          logger.warn(
+            "Sequence number drift detected (tx_bad_seq). Reloading account and retrying...",
+            {
+              sourceAccountId,
+              attempt,
+              maxAttempts,
+            },
+          );
+          // Force reload the account to get fresh sequence number
+          await this.getAccount(sourceAccountId);
+          continue;
+        }
+
+        // Log error and throw on final attempt or non-sequence errors
+        logger.error("Failed to submit transaction", {
+          error: error.message,
+          extras: error.response?.data?.extras,
+          attempt,
+          maxAttempts,
+        });
+        throw error;
+      }
+    }
+
+    throw new Error("Failed to submit transaction after retries");
+  }
+
+  /**
    * Get transaction by hash
    */
   async getTransaction(transactionHash: string) {
@@ -276,4 +342,5 @@ export const stellarClient = new StellarClient({
   network: config.stellar.network as "testnet" | "mainnet",
   horizonUrl: config.stellar.horizonUrl,
   secretKey: config.stellar.secretKey,
+  networkPassphrase: config.stellar.networkPassphrase,
 });

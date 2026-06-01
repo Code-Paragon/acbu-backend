@@ -164,6 +164,8 @@ function alertAdmin(payload: AuditPayload, failureReason: string): void {
  * On sustained failure saves to MongoDB outbox so events are never lost.
  */
 export async function logAudit(entry: AuditEntry): Promise<void> {
+  validateAdminAttribution(entry);
+
   const payload: AuditPayload = {
     ...entry,
     timestamp: new Date().toISOString(),

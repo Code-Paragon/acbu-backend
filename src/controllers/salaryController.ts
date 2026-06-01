@@ -57,11 +57,12 @@ export async function postSalaryDisburse(
     });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      throw new AppError("Validation error", 400, "VALIDATION_ERROR", e.flatten());
+      return next(
+        new AppError("Validation error", 400, "VALIDATION_ERROR", e.flatten()),
+      );
     }
     next(e);
   }
-
 }
 
 /**
@@ -92,7 +93,7 @@ export async function getSalaryBatches(
     });
 
     res.status(200).json({
-      batches: batches.map((b: any) => ({
+      batches: batches.map((b: (typeof batches)[number]) => ({
         batch_id: b.id,
         status: b.status,
         total_amount: b.totalAmount.toString(),
@@ -149,11 +150,12 @@ export async function postSalarySchedule(
     });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      throw new AppError("Validation error", 400, "VALIDATION_ERROR", e.flatten());
+      return next(
+        new AppError("Validation error", 400, "VALIDATION_ERROR", e.flatten()),
+      );
     }
     next(e);
   }
-
 }
 
 /**
@@ -175,7 +177,7 @@ export async function getSalarySchedules(
     });
 
     res.status(200).json({
-      schedules: schedules.map((s: any) => ({
+      schedules: schedules.map((s: (typeof schedules)[number]) => ({
         schedule_id: s.id,
         name: s.name,
         cron: s.cron,

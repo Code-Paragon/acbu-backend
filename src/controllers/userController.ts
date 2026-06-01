@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { Response, NextFunction } from "express";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import * as StellarSdk from "@stellar/stellar-sdk";
@@ -553,7 +554,7 @@ export async function deleteMe(
     const userId = req.apiKey?.userId;
     if (!userId) throw new AppError("User-scoped API key required", 401);
 
-    await prisma.$transaction(async (tx: any) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. Delete associated sensitive records
       await tx.apiKey.deleteMany({ where: { userId } });
       await tx.otpChallenge.deleteMany({ where: { userId } });

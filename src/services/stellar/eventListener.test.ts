@@ -5,6 +5,7 @@ const mockCursor = jest.fn();
 const mockForContract = jest.fn();
 const mockAssertQueue = jest.fn();
 const mockSendToQueue = jest.fn();
+const mockGetServer = jest.fn();
 
 const mockBuilder = {
   order: mockOrder,
@@ -17,14 +18,15 @@ mockOrder.mockReturnValue(mockBuilder);
 mockLimit.mockReturnValue(mockBuilder);
 mockCursor.mockReturnValue(mockBuilder);
 mockForContract.mockReturnValue(mockBuilder);
+mockGetServer.mockImplementation(() => ({
+  effects: () => ({
+    forContract: mockForContract,
+  }),
+}));
 
 jest.mock("./client", () => ({
   stellarClient: {
-    getServer: () => ({
-      effects: () => ({
-        forContract: mockForContract,
-      }),
-    }),
+    getServer: mockGetServer,
   },
 }));
 
@@ -71,6 +73,44 @@ describe("EventListener", () => {
 
     expect(mockForContract).toHaveBeenCalledWith("contract-123");
     expect(mockForContract).toHaveBeenCalledTimes(1);
+  });
+
+  it("attaches a schema version to parsed contract events", async () => {
+    const listener = new EventListener();
+    const received: unknown[] = [];
+
+    listener.listenToContractEvents(
+      "contract-123",
+      ["contract_credited"],
+      async (event) => {
+        received.push(event);
+      },
+    );
+
+    await listener.dispatchRawEffect("contract-123", {
+      contract: "contract-123",
+      type: "contract_credited",
+      ledger: 88,
+      created_at: "2026-04-23T00:00:00.000Z",
+      paging_token: "cursor-88",
+    });
+
+    expect(received).toHaveLength(1);
+    expect((received[0] as Record<string, unknown>).version).toBe(1);
+  });
+
+  it("exposes Soroban event listener health status", async () => {
+    const listener = new EventListener();
+    listener.listenToContractEvents(
+      "contract-123",
+      ["contract_credited"],
+      async () => {},
+    );
+
+    await listener.pollOnce();
+
+    expect(listener.getHealthStatus().status).toBe("up");
+    expect(listener.getHealthStatus().lastHealthyAt).toBeGreaterThan(0);
   });
 
   it("retries transient handler failures so injected events still reach the projection store", async () => {

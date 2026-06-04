@@ -24,6 +24,7 @@ import {
 import { enqueueUsdcConvertAndMint } from "../jobs/usdcConvertAndMintJob";
 import { Prisma } from "@prisma/client";
 import { AppError } from "../middleware/errorHandler";
+import { convertLocalToUsd } from "../services/rates/currencyConverter";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
 import { convertLocalToUsd } from "../services/rates";
 import { logger } from "../config/logger";

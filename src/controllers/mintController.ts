@@ -14,6 +14,7 @@ import { Prisma } from "@prisma/client";
 import { logAudit } from "../services/audit";
 import {
   BASKET_CURRENCIES,
+  FORBIDDEN_DEPOSIT_CURRENCIES,
   isAllowedDepositCurrency,
   isForbiddenDepositCurrency,
 } from "../config/basket";
@@ -251,7 +252,20 @@ const fintechTxIdSchema = z
   .optional();
 
 export const depositBodySchema = z.object({
-  currency: z.string().length(3).toUpperCase(),
+  currency: z
+    .string()
+    .length(3)
+    .transform((value) => value.toUpperCase())
+    .refine(
+      (currency) =>
+        isAllowedDepositCurrency(currency) || isForbiddenDepositCurrency(currency),
+      {
+        message: `Currency must be one of: ${[
+          ...BASKET_CURRENCIES,
+          ...FORBIDDEN_DEPOSIT_CURRENCIES,
+        ].join(", ")}`,
+      },
+    ),
   amount: z
     .string()
     .min(1)
@@ -292,7 +306,7 @@ export async function depositFromBasketCurrency(
     }
     if (!isAllowedDepositCurrency(currency)) {
       throw new AppError(
-        `Currency ${currency} is not in the basket. Allowed: ${BASKET_CURRENCIES.join(", ")}.`,
+        `Currency ${currency} is not supported for deposit. Allowed basket currencies: ${BASKET_CURRENCIES.join(", ")}.`,
         400,
         ErrorCodes.INVALID_CURRENCY,
         { deposit_currencies_allowed: [...BASKET_CURRENCIES] },

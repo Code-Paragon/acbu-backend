@@ -112,7 +112,7 @@ export class MintingService {
         try {
           await prisma.transaction.update({
             where: { id: (params as any).txId },
-            data: { status: "FAILED" }
+            data: { status: "FAILED" },
           });
           logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
         } catch (dbError) {
@@ -171,7 +171,7 @@ export class MintingService {
         try {
           await prisma.transaction.update({
             where: { id: (params as any).txId },
-            data: { status: "FAILED" }
+            data: { status: "FAILED" },
           });
           logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
         } catch (dbError) {
@@ -231,7 +231,7 @@ export class MintingService {
         try {
           await prisma.transaction.update({
             where: { id: (params as any).txId },
-            data: { status: "FAILED" }
+            data: { status: "FAILED" },
           });
           logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
         } catch (dbError) {
@@ -289,7 +289,7 @@ export class MintingService {
         try {
           await prisma.transaction.update({
             where: { id: (params as any).txId },
-            data: { status: "FAILED" }
+            data: { status: "FAILED" },
           });
           logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
         } catch (dbError) {
@@ -334,7 +334,7 @@ export class MintingService {
         try {
           await prisma.transaction.update({
             where: { id: (params as any).txId },
-            data: { status: "FAILED" }
+            data: { status: "FAILED" },
           });
           logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
         } catch (dbError) {
@@ -351,11 +351,7 @@ export class MintingService {
    */
   async getFeeRate(): Promise<number> {
     try {
-      const result = await this.contractClient.readContract(
-        this.contractId,
-        "get_fee_rate",
-        [],
-      );
+      const result = await this.contractClient.readContract(this.contractId, "get_fee_rate", []);
 
       const feeRate = ContractClient.fromScVal(result);
       return Number(feeRate);
@@ -370,11 +366,7 @@ export class MintingService {
    */
   async isPaused(): Promise<boolean> {
     try {
-      const result = await this.contractClient.readContract(
-        this.contractId,
-        "is_paused",
-        [],
-      );
+      const result = await this.contractClient.readContract(this.contractId, "is_paused", []);
 
       return ContractClient.fromScVal(result) as boolean;
     } catch (error) {

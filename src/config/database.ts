@@ -258,4 +258,5 @@ process.on("beforeExit", async () => {
   await Promise.all([basePrisma.$disconnect(), basePrismaReplica.$disconnect()]);
 });
 
+export { Prisma };
 export default prisma;

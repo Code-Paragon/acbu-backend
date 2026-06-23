@@ -21,6 +21,13 @@ export interface StellarNetworkConfig {
 
 export type StellarServer = InstanceType<typeof Server>;
 
+export interface FeeBumpOptions {
+  /** Secret key for the account paying the fee bump. Defaults to the configured Stellar secret key. */
+  feeSourceSecretKey?: string;
+  /** Fee per operation, in stroops. Defaults to 10x the configured base fee. */
+  baseFee?: string;
+}
+
 export class StellarClient {
   private server: StellarServer;
   private network: "testnet" | "mainnet";
@@ -212,6 +219,67 @@ export class StellarClient {
       });
       throw error;
     }
+  }
+
+  /**
+   * Build a Stellar fee-bump transaction around an already-signed inner transaction.
+   * This lets operators rescue mint/burn operations that are stuck because their
+   * original fee was too low, without rebuilding or re-signing the inner operation.
+   */
+  buildFeeBumpTransaction(
+    innerTransaction: Transaction,
+    options?: FeeBumpOptions,
+  ): FeeBumpTransaction {
+    const feeSourceKeypair = options?.feeSourceSecretKey
+      ? Keypair.fromSecret(options.feeSourceSecretKey)
+      : this.keypair;
+
+    if (!feeSourceKeypair) {
+      throw new Error("Fee bump source keypair is required");
+    }
+
+    const baseFee =
+      options?.baseFee ?? String(Math.max(config.stellar.baseFeeStroops * 10, 1000));
+
+    const feeBumpTransaction = TransactionBuilder.buildFeeBumpTransaction(
+      feeSourceKeypair,
+      baseFee,
+      innerTransaction,
+      this.networkPassphrase,
+    );
+
+    feeBumpTransaction.sign(feeSourceKeypair);
+    return feeBumpTransaction;
+  }
+
+  /**
+   * Build, sign, and submit a fee-bump transaction for a signed inner transaction.
+   */
+  async submitFeeBumpTransaction(
+    innerTransaction: Transaction,
+    options?: FeeBumpOptions,
+  ) {
+    const feeBumpTransaction = this.buildFeeBumpTransaction(
+      innerTransaction,
+      options,
+    );
+
+    return this.submitTransaction(feeBumpTransaction);
+  }
+
+  /**
+   * Build, sign, and submit a fee-bump transaction from an inner transaction XDR.
+   */
+  async submitFeeBumpTransactionXdr(
+    innerTransactionXdr: string,
+    options?: FeeBumpOptions,
+  ) {
+    const innerTransaction = new Transaction(
+      innerTransactionXdr,
+      this.networkPassphrase,
+    );
+
+    return this.submitFeeBumpTransaction(innerTransaction, options);
   }
 
   /**

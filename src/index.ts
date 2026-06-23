@@ -2,7 +2,6 @@ import { initTracing } from "./config/tracing";
 initTracing();
 
 import express, { type NextFunction, type Request, type Response } from "express";
-import helmet from "helmet";
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
@@ -11,6 +10,7 @@ import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
+import { securityHeadersMiddleware } from "./middleware/securityHeaders";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
@@ -23,22 +23,7 @@ const app: express.Express = express();
 const MAX_REQUEST_BODY_SIZE = "1mb";
 
 // Security middleware
-app.use(
-  helmet({
-    hsts: {
-      maxAge: 31536000,
-      includeSubDomains: true,
-    },
-    contentSecurityPolicy: {
-      directives: {
-        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-        "img-src": ["'self'", "data:", "https://validator.swagger.io"],
-        "script-src": ["'self'"],
-        "style-src": ["'self'", "https:"],
-      },
-    },
-  }),
-);
+app.use(securityHeadersMiddleware);
 app.use(corsMiddleware);
 
 // Compress all JSON/text responses to reduce bandwidth on large payloads

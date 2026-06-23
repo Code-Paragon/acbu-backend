@@ -4,11 +4,7 @@
  */
 import { randomUUID } from "crypto";
 import type { ConsumeMessage } from "amqplib";
-import {
-  connectRabbitMQ,
-  QUEUES,
-  assertQueueWithDLQ,
-} from "../config/rabbitmq";
+import { connectRabbitMQ, QUEUES, assertQueueWithDLQ } from "../config/rabbitmq";
 import { logger, logFinancialEvent } from "../config/logger";
 import { prisma } from "../config/database";
 import { getFintechRouter } from "../services/fintech";
@@ -72,16 +68,8 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
 
         const currency = tx.localCurrency;
         const amount = tx.localAmount ? Number(tx.localAmount) : 0;
-        const recipientJson = tx.recipientAccount as Record<
-          string,
-          unknown
-        > | null;
-        if (
-          !currency ||
-          !Number.isFinite(amount) ||
-          amount <= 0 ||
-          !recipientJson
-        ) {
+        const recipientJson = tx.recipientAccount as Record<string, unknown> | null;
+        if (!currency || !Number.isFinite(amount) || amount <= 0 || !recipientJson) {
           await prisma.transaction.update({
             where: { id: transactionId },
             data: { status: "failed" },
@@ -94,15 +82,9 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
         }
 
         const recipient: DisburseRecipient = {
-          accountNumber: String(
-            recipientJson.account_number ?? recipientJson.accountNumber ?? "",
-          ),
-          bankCode: String(
-            recipientJson.bank_code ?? recipientJson.bankCode ?? "",
-          ),
-          accountName: String(
-            recipientJson.account_name ?? recipientJson.accountName ?? "",
-          ),
+          accountNumber: String(recipientJson.account_number ?? recipientJson.accountNumber ?? ""),
+          bankCode: String(recipientJson.bank_code ?? recipientJson.bankCode ?? ""),
+          accountName: String(recipientJson.account_name ?? recipientJson.accountName ?? ""),
         };
         if (!recipient.accountNumber || !recipient.bankCode) {
           await prisma.transaction.update({
@@ -115,9 +97,8 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
         }
 
         const providerName =
-          ({ NGN: "paystack", RWF: "mtn_momo" } as Record<string, string>)[
-            currency
-          ] ?? "flutterwave";
+          ({ NGN: "paystack", RWF: "mtn_momo" } as Record<string, string>)[currency] ??
+          "flutterwave";
 
         logFinancialEvent({
           event: "withdrawal.processing",
@@ -139,24 +120,18 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
           try {
             provider = await router.getProvider(currency);
             usedProviderId = provider.constructor?.name || "unknown";
-            result = await provider.disburseFunds(
-              amount,
-              currency,
-              recipient,
-            );
+            result = await provider.disburseFunds(amount, currency, recipient);
           } catch (err) {
-            logger.warn("Primary provider failed, attempting failover", { transactionId, error: err });
+            logger.warn("Primary provider failed, attempting failover", {
+              transactionId,
+              error: err,
+            });
             // Simulate outage for primary, try next
             provider = await router.getProvider(currency, {
-              simulateOutageFor:
-                router.getPreferredProviderId(currency) ?? undefined,
+              simulateOutageFor: router.getPreferredProviderId(currency) ?? undefined,
             });
             usedProviderId = provider.constructor?.name || "unknown";
-            result = await provider.disburseFunds(
-              amount,
-              currency,
-              recipient,
-            );
+            result = await provider.disburseFunds(amount, currency, recipient);
           }
           await prisma.transaction.update({
             where: { id: transactionId },
@@ -198,32 +173,34 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
           logger.error("Withdrawal disbursement failed", {
             transactionId,
             error: err,
+            retries,
+            maxRetries: MAX_RETRIES,
           });
-          logFinancialEvent({
-            event: "withdrawal.failed",
-            status: "failed",
-            transactionId,
-            userId: tx.userId ?? "",
-            accountId: tx.userId ?? "",
-            idempotencyKey: transactionId,
-            amount: Math.round(amount * 100),
-            currency,
-            provider: providerName,
-            correlationId,
-            errorMessage: err instanceof Error ? err.message : String(err),
-          });
-          await prisma.transaction.update({
-            where: { id: transactionId },
-            data: { status: "failed" },
-          });
-          await publishWithdrawalNotification(
-            transactionId,
-            tx.userId,
-            "failed",
-            currency,
-            amount,
-          );
           if (retries >= MAX_RETRIES) {
+            logFinancialEvent({
+              event: "withdrawal.failed",
+              status: "failed",
+              transactionId,
+              userId: tx.userId ?? "",
+              accountId: tx.userId ?? "",
+              idempotencyKey: transactionId,
+              amount: Math.round(amount * 100),
+              currency,
+              provider: providerName,
+              correlationId,
+              errorMessage: err instanceof Error ? err.message : String(err),
+            });
+            await prisma.transaction.update({
+              where: { id: transactionId },
+              data: { status: "failed" },
+            });
+            await publishWithdrawalNotification(
+              transactionId,
+              tx.userId,
+              "failed",
+              currency,
+              amount,
+            );
             logger.error("Withdrawal processing job failed permanently, sending to DLQ", {
               transactionId,
               retries,
@@ -302,18 +279,12 @@ async function publishWithdrawalNotification(
 /**
  * Enqueue a withdrawal processing job (call from BurnEvent handler).
  */
-export async function enqueueWithdrawalProcessing(
-  payload: WithdrawalPayload,
-): Promise<void> {
+export async function enqueueWithdrawalProcessing(payload: WithdrawalPayload): Promise<void> {
   const ch = await connectRabbitMQ();
   await assertQueueWithDLQ(QUEUES.WITHDRAWAL_PROCESSING);
-  ch.sendToQueue(
-    QUEUES.WITHDRAWAL_PROCESSING,
-    Buffer.from(JSON.stringify(payload)),
-    {
-      persistent: true,
-    },
-  );
+  ch.sendToQueue(QUEUES.WITHDRAWAL_PROCESSING, Buffer.from(JSON.stringify(payload)), {
+    persistent: true,
+  });
   logger.info("Withdrawal processing enqueued", {
     transactionId: payload.transactionId,
   });

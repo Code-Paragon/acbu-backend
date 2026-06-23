@@ -144,6 +144,7 @@ describe("WithdrawalProcessingConsumer", () => {
     );
     expect(mockChannel.ack).toHaveBeenCalled();
     expect(mockChannel.nack).not.toHaveBeenCalled();
+    expect(prisma.transaction.update).not.toHaveBeenCalled();
   });
 
   it("should permanently fail and nack to DLQ when retry limit is exceeded", async () => {
@@ -160,9 +161,13 @@ describe("WithdrawalProcessingConsumer", () => {
     expect(mockChannel.sendToQueue).not.toHaveBeenCalledWith(
       QUEUES.WITHDRAWAL_PROCESSING,
       expect.any(Buffer),
-      expect.any(Object)
+      expect.any(Object),
     );
     expect(mockChannel.nack).toHaveBeenCalledWith(expect.any(Object), false, false);
     expect(mockChannel.ack).not.toHaveBeenCalled();
+    expect(prisma.transaction.update).toHaveBeenCalledWith({
+      where: { id: "tx-123" },
+      data: expect.objectContaining({ status: "failed" }),
+    });
   });
 });

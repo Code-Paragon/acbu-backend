@@ -22,8 +22,8 @@ import { checkDepositLimits, isMintingPaused } from "../services/limits/limitsSe
 import { enqueueUsdcConvertAndMint } from "../jobs/usdcConvertAndMintJob";
 import { AppError } from "../middleware/errorHandler";
 import { ErrorCodes } from "../types/errorCodes";
+import { convertLocalToUsd } from "../services/rates/currencyConverter";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
-import { convertLocalToUsd } from "../services/rates";
 import { logger } from "../config/logger";
 import {
   parseMonetaryString,

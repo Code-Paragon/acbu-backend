@@ -26,6 +26,12 @@ import { ErrorCodes } from "./types/errorCodes";
 import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 
 const app: express.Express = express();
+
+// Trust the first reverse proxy hop (e.g. nginx) so req.ip returns the real
+// client IP. Without this, rate limiting and audit logging will always see
+// 127.0.0.1, breaking IP-based enforcement and client attribution.
+app.set("trust proxy", 1);
+
 const MAX_REQUEST_BODY_SIZE = "1mb";
 
 // Security middleware

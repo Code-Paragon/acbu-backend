@@ -1,11 +1,7 @@
 import { initTracing } from "./config/tracing";
 initTracing();
 
-import express, {
-  type NextFunction,
-  type Request,
-  type Response,
-} from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
@@ -13,7 +9,7 @@ import { config } from "./config/env";
 import { logger } from "./config/logger";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
-import { prisma } from "./config/database";
+import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler, AppError } from "./middleware/errorHandler";
@@ -53,19 +49,9 @@ app.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
 // ── Webhook Content-Type validation ────────────────────────────────────────────
 // Must check Content-Type BEFORE raw body parser, since non-JSON bodies would
 // bypass parsing and cause unexpected behavior in signature verification.
-function validateWebhookContentType(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
+function validateWebhookContentType(req: Request, _res: Response, next: NextFunction): void {
   if (!req.is("application/json")) {
-    return next(
-      new AppError(
-        "Content-Type must be application/json",
-        415,
-        "INVALID_CONTENT_TYPE",
-      ),
-    );
+    return next(new AppError("Content-Type must be application/json", 415, "INVALID_CONTENT_TYPE"));
   }
   next();
 }
@@ -90,18 +76,25 @@ app.use(
 );
 app.use(express.json({ limit: MAX_REQUEST_BODY_SIZE }));
 
-app.use((err: Error & { type?: string }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err?.type === "entity.too.large") {
-    res.status(413).json({
-      error: {
-        code: "PAYLOAD_TOO_LARGE",
-        message: "Request body exceeds maximum allowed size",
-      },
-    });
-    return;
-  }
-  next(err);
-});
+app.use(
+  (
+    err: Error & { type?: string },
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    if (err?.type === "entity.too.large") {
+      res.status(413).json({
+        error: {
+          code: "PAYLOAD_TOO_LARGE",
+          message: "Request body exceeds maximum allowed size",
+        },
+      });
+      return;
+    }
+    next(err);
+  },
+);
 
 // Logging
 app.use(requestLogger);
@@ -131,6 +124,10 @@ async function startServer() {
     logger.info("Applying Prisma migrations...");
     execSync("npx prisma migrate deploy", { stdio: "inherit" });
     logger.info("Prisma migrations applied successfully");
+
+    // Establish the DB connection with backoff + jitter so coordinated restarts
+    // don't stampede the database's connection slots (#402).
+    await connectWithRetry();
 
     // Connect to MongoDB (optional: server starts even if unreachable or MONGODB_URI empty)
     if (config.mongodbUri) {
@@ -166,8 +163,7 @@ async function startServer() {
 
     if (rabbitReady) {
       // Start notification consumer (OTP_SEND + NOTIFICATIONS → email/SMS)
-      const { startNotificationConsumer } =
-        await import("./jobs/notificationConsumer");
+      const { startNotificationConsumer } = await import("./jobs/notificationConsumer");
       await startNotificationConsumer();
 
       // Start audit consumer (AUDIT_LOGS → database)
@@ -179,33 +175,27 @@ async function startServer() {
       await startWebhookConsumer();
 
       // Start oracle update scheduler (every 6h)
-      const { startOracleUpdateScheduler } =
-        await import("./jobs/oracleUpdateJob");
+      const { startOracleUpdateScheduler } = await import("./jobs/oracleUpdateJob");
       await startOracleUpdateScheduler();
 
       // Start reserve tracking scheduler (every 6h)
-      const { startReserveTrackingScheduler } =
-        await import("./jobs/reserveTrackingJob");
+      const { startReserveTrackingScheduler } = await import("./jobs/reserveTrackingJob");
       await startReserveTrackingScheduler();
 
       // Start daily rebalancing scheduler (00:00 UTC)
-      const { startRebalancingScheduler } =
-        await import("./jobs/rebalancingJob");
+      const { startRebalancingScheduler } = await import("./jobs/rebalancingJob");
       await startRebalancingScheduler();
 
       // Start proposed basket weights scheduler (metrics → proposed weights, e.g. monthly)
-      const { startProposedWeightsScheduler } =
-        await import("./jobs/proposedWeightsJob");
+      const { startProposedWeightsScheduler } = await import("./jobs/proposedWeightsJob");
       await startProposedWeightsScheduler();
 
       // Start USDC conversion consumer (MintEvent → basket allocation)
-      const { startUsdcConversionConsumer } =
-        await import("./jobs/usdcConversionJob");
+      const { startUsdcConversionConsumer } = await import("./jobs/usdcConversionJob");
       await startUsdcConversionConsumer();
 
       // Start withdrawal processing consumer (BurnEvent → fintech disbursement)
-      const { startWithdrawalProcessingConsumer } =
-        await import("./jobs/withdrawalProcessingJob");
+      const { startWithdrawalProcessingConsumer } = await import("./jobs/withdrawalProcessingJob");
       await startWithdrawalProcessingConsumer();
 
       // Start XLM→ACBU consumer (XLM deposit: sell XLM and mint ACBU to user)
@@ -213,36 +203,29 @@ async function startServer() {
       await startXlmToAcbuConsumer();
 
       // Start USDC convert-and-mint consumer (USDC deposit: convert USDC→XLM in backend, then mint)
-      const { startUsdcConvertAndMintConsumer } =
-        await import("./jobs/usdcConvertAndMintJob");
+      const { startUsdcConvertAndMintConsumer } = await import("./jobs/usdcConvertAndMintJob");
       await startUsdcConvertAndMintConsumer();
 
       // Investment withdrawal: mark requests available at T+24h and send notification
-      const { startInvestmentWithdrawalScheduler } =
-        await import("./jobs/investmentWithdrawalJob");
+      const { startInvestmentWithdrawalScheduler } = await import("./jobs/investmentWithdrawalJob");
       await startInvestmentWithdrawalScheduler();
 
       // Start yield accrual scheduler (run once at startup to seed accruals)
-      const { startYieldAccrualScheduler } =
-        await import("./jobs/yieldAccrualJob");
+      const { startYieldAccrualScheduler } = await import("./jobs/yieldAccrualJob");
       await startYieldAccrualScheduler();
 
       // Start weekly weight drift audit job (Monday 00:00 UTC)
-      const { startWeightDriftAuditScheduler } =
-        await import("./jobs/weightDriftAuditJob");
+      const { startWeightDriftAuditScheduler } = await import("./jobs/weightDriftAuditJob");
       await startWeightDriftAuditScheduler();
 
       // Salary schedule: trigger recurring salary payments
-      const { startSalaryScheduleScheduler } =
-        await import("./jobs/salaryScheduleJob");
+      const { startSalaryScheduleScheduler } = await import("./jobs/salaryScheduleJob");
       await startSalaryScheduleScheduler();
 
       // Register MintEvent/BurnEvent handlers and start Stellar event listener (runs in background)
-      const { startMintEventListener } =
-        await import("./jobs/acbu_minting_event_listener");
+      const { startMintEventListener } = await import("./jobs/acbu_minting_event_listener");
       await startMintEventListener();
-      const { startBurnEventListener } =
-        await import("./jobs/acbu_burning_event_listener");
+      const { startBurnEventListener } = await import("./jobs/acbu_burning_event_listener");
       await startBurnEventListener();
       const { startSavingsVaultEventListener } =
         await import("./jobs/acbu_savings_vault_event_listener");
@@ -250,16 +233,14 @@ async function startServer() {
       const { startLendingPoolEventListener } =
         await import("./jobs/acbu_lending_pool_event_listener");
       await startLendingPoolEventListener();
-      const { startEscrowEventListener } =
-        await import("./jobs/acbu_escrow_event_listener");
+      const { startEscrowEventListener } = await import("./jobs/acbu_escrow_event_listener");
       await startEscrowEventListener();
     }
     const { eventListener } = await import("./services/stellar/eventListener");
     void eventListener.start();
 
     // Mark application as ready for health checks
-    const { markStartupComplete } =
-      await import("./services/health/healthService");
+    const { markStartupComplete } = await import("./services/health/healthService");
     markStartupComplete();
 
     // Start HTTP server
@@ -268,9 +249,7 @@ async function startServer() {
       logger.info(`Environment: ${config.nodeEnv}`);
       logger.info(`API Version: ${config.apiVersion}`);
       if (config.nodeEnv !== "production") {
-        logger.info(
-          `API Documentation: http://localhost:${config.port}/api-docs`,
-        );
+        logger.info(`API Documentation: http://localhost:${config.port}/api-docs`);
       }
     });
     setHttpServer(server);

@@ -19,10 +19,7 @@ if (ACCELERATE_PROTOCOL_RE.test(config.databaseUrl)) {
   );
 }
 
-if (
-  config.prismaAccelerateUrl &&
-  !ACCELERATE_PROTOCOL_RE.test(config.prismaAccelerateUrl)
-) {
+if (config.prismaAccelerateUrl && !ACCELERATE_PROTOCOL_RE.test(config.prismaAccelerateUrl)) {
   logger.warn(
     "[database] PRISMA_ACCELERATE_URL does not start with prisma:// — " +
       "expected an Accelerate connection string. " +
@@ -31,9 +28,7 @@ if (
 }
 
 const useAccelerate = Boolean(config.prismaAccelerateUrl);
-const databaseUrl = useAccelerate
-  ? config.prismaAccelerateUrl!
-  : config.databaseUrl;
+const databaseUrl = useAccelerate ? config.prismaAccelerateUrl! : config.databaseUrl;
 
 logger.info(
   `[database] Runtime connection: ${useAccelerate ? "Prisma Accelerate (pooled)" : "direct PostgreSQL"}`,
@@ -117,22 +112,71 @@ basePrisma.$use(async (params, next) => {
   throw lastError;
 });
 
-export const prisma = useAccelerate
-  ? basePrisma.$extends(withAccelerate())
-  : basePrisma;
+export const prisma = useAccelerate ? basePrisma.$extends(withAccelerate()) : basePrisma;
 
 // Log queries in development ($on exists only on base client, not on extended proxy)
 if (config.nodeEnv === "development") {
-  basePrisma.$on(
-    "query" as never,
-    (e: { query: string; params: string; duration: number }) => {
-      logger.debug("Query", {
-        query: e.query,
-        params: e.params,
-        duration: `${e.duration}ms`,
+  basePrisma.$on("query" as never, (e: { query: string; params: string; duration: number }) => {
+    logger.debug("Query", {
+      query: e.query,
+      params: e.params,
+      duration: `${e.duration}ms`,
+    });
+  });
+}
+
+/**
+ * Establish the initial database connection with bounded exponential backoff and
+ * full jitter (#402).
+ *
+ * After a shared outage or coordinated restart, every instance would otherwise
+ * retry on the same fixed schedule and slam the database's limited connection
+ * slots simultaneously — a thundering herd that triggers cascading connection
+ * rejections. Full jitter (`random(0, cappedBackoff)`) spreads reconnection
+ * attempts across the window so the load on connection slots is smoothed out.
+ *
+ * Resolves once connected; throws after the configured number of attempts is
+ * exhausted so the caller can fail startup loudly.
+ */
+export async function connectWithRetry(): Promise<void> {
+  const maxRetries = config.database.connectMaxRetries;
+  const baseBackoff = config.database.connectBaseBackoffMs;
+  const maxBackoff = config.database.connectMaxBackoffMs;
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await basePrisma.$connect();
+      if (attempt > 1) {
+        logger.info("[database] Connected after retry", { attempt });
+      } else {
+        logger.info("[database] Connected");
+      }
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt >= maxRetries) break;
+
+      // Exponential backoff capped at maxBackoff, then full jitter in [0, cap].
+      const cappedBackoff = Math.min(maxBackoff, baseBackoff * 2 ** (attempt - 1));
+      const delay = Math.floor(Math.random() * cappedBackoff);
+      logger.warn("[database] Connection attempt failed, retrying with jitter", {
+        attempt,
+        maxRetries,
+        delayMs: delay,
+        error: err instanceof Error ? err.message : String(err),
       });
-    },
-  );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  logger.error("[database] Failed to connect after exhausting retries", {
+    maxRetries,
+    error: lastError instanceof Error ? lastError.message : String(lastError),
+  });
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Database connection failed after exhausting retries");
 }
 
 // Handle graceful shutdown

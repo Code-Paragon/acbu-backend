@@ -45,6 +45,13 @@ const envSchema = z.object({
   OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().default(2000),
   OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().default(2),
   OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().default(500),
+
+  // #402: Startup database connection retry with exponential backoff + jitter.
+  // Jitter de-synchronises reconnecting instances to avoid a thundering herd on
+  // the database connection slots after a shared outage/crash.
+  DB_CONNECT_MAX_RETRIES: z.coerce.number().int().min(1).default(8),
+  DB_CONNECT_BASE_BACKOFF_MS: z.coerce.number().int().min(1).default(250),
+  DB_CONNECT_MAX_BACKOFF_MS: z.coerce.number().int().min(1).default(10000),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -364,6 +371,13 @@ export const config = {
     failOpenTimeoutMs: env.OPENAI_FAIL_OPEN_TIMEOUT_MS,
     failOpenMaxRetries: env.OPENAI_FAIL_OPEN_MAX_RETRIES,
     failOpenRetryBaseMs: env.OPENAI_FAIL_OPEN_RETRY_BASE_MS,
+  },
+
+  // Startup database connection retry (#402)
+  database: {
+    connectMaxRetries: env.DB_CONNECT_MAX_RETRIES,
+    connectBaseBackoffMs: env.DB_CONNECT_BASE_BACKOFF_MS,
+    connectMaxBackoffMs: env.DB_CONNECT_MAX_BACKOFF_MS,
   },
 
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)

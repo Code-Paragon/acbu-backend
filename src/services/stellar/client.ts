@@ -8,6 +8,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { config } from "../../config/env";
 import { logger } from "../../config/logger";
+import { CircuitBreaker } from "../../utils/circuitBreaker";
 
 const Server = Horizon.Server;
 
@@ -32,6 +33,7 @@ export class StellarClient {
   private network: "testnet" | "mainnet";
   private networkPassphrase: string;
   private keypair: Keypair | null = null;
+  readonly horizonBreaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 30_000, successThreshold: 2 });
 
   constructor(cfg?: Partial<StellarNetworkConfig>) {
     const network = (cfg?.network ?? config.stellar.network) as
@@ -109,9 +111,14 @@ export class StellarClient {
   async getAccount(accountId: string, retries = 3) {
     for (let i = 0; i < retries; i++) {
       try {
+        if (!this.horizonBreaker.canExecute()) {
+          throw new Error("Horizon circuit breaker is OPEN — skipping request");
+        }
         const account = await this.server.loadAccount(accountId);
+        this.horizonBreaker.recordSuccess();
         return account;
       } catch (error: any) {
+        this.horizonBreaker.recordFailure();
         if (i === retries - 1) {
           logger.error("Failed to load account after retries", {
             accountId,
@@ -149,8 +156,12 @@ export class StellarClient {
       if (!fee) {
         if (config.stellar.useDynamicFees) {
           try {
-            fee = String(await this.server.fetchBaseFee());
+            if (this.horizonBreaker.canExecute()) {
+              fee = String(await this.server.fetchBaseFee());
+              this.horizonBreaker.recordSuccess();
+            }
           } catch (err) {
+            this.horizonBreaker.recordFailure();
             logger.warn(
               "Failed to fetch dynamic Stellar base fee; falling back to configured value",
               { err, fallback: config.stellar.baseFeeStroops },
@@ -190,13 +201,18 @@ export class StellarClient {
    */
   async submitTransaction(transaction: Transaction | FeeBumpTransaction) {
     try {
+      if (!this.horizonBreaker.canExecute()) {
+        throw new Error("Horizon circuit breaker is OPEN — cannot submit transaction");
+      }
       const result = await this.server.submitTransaction(transaction);
+      this.horizonBreaker.recordSuccess();
       logger.info("Transaction submitted", {
         hash: result.hash,
         ledger: result.ledger,
       });
       return result;
     } catch (error: any) {
+      this.horizonBreaker.recordFailure();
       logger.error("Failed to submit transaction", {
         error: error.message,
         extras: error.response?.data?.extras,
@@ -287,7 +303,7 @@ export class StellarClient {
           operations,
           options,
         );
-        const result = await this.server.submitTransaction(transaction);
+        const result = await this.submitTransaction(transaction);
         logger.info("Transaction submitted", {
           hash: result.hash,
           ledger: result.ledger,

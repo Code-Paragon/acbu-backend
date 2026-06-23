@@ -149,8 +149,22 @@ async function getFxRateWithFallback(currency: string): Promise<FxRate | null> {
 /**
  * Aggregate transaction data by currency
  */
-async function aggregateTransactionsBySegment(): Promise<Map<string, TransactionAggregate>> {
-  const transactions = await getTransactionsForTreasuryReport();
+async function aggregateTransactionsBySegment(): Promise<
+  Map<string, TransactionAggregate>
+> {
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      status: { in: ["completed", "processing"] },
+      type: { in: ["mint", "burn", "transfer"] },
+    },
+    take: 50_000, // #437: cap to prevent OOM on large tables
+    select: {
+      type: true,
+      localCurrency: true,
+      acbuAmount: true,
+      acbuAmountBurned: true,
+    },
+  });
 
   const aggregates = new Map<string, TransactionAggregate>();
 

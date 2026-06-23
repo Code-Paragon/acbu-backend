@@ -142,6 +142,7 @@ export async function getGovernmentTreasury(
           type: { in: ["mint", "burn"] },
           status: { in: ["completed", "processing"] },
         },
+        take: 50_000, // #437: cap to prevent OOM on large tables
         select: {
           type: true,
           localCurrency: true,

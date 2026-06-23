@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
 import { prisma } from "../config/database";
 import bcrypt from "bcryptjs";
 import { AppError } from "./errorHandler";
 import { logger } from "../config/logger";
-import jwt from "jsonwebtoken";
+import { EXPECTED_JWT_TYP } from "./authMiddleware";
 import { PermissionScopeEnum, PermissionScope } from "../types/permissions";
 
 export type Audience = "retail" | "business" | "government";
@@ -87,9 +88,15 @@ function rejectIfJwtToken(token: string): void {
   const parts = token.split(".");
   if (parts.length === 3) {
     try {
-      // Decode without verification to check claims
-      const decoded = jwt.decode(token) as Record<string, unknown> | null;
-      if (decoded) {
+      const decodedComplete = jwt.decode(token, { complete: true });
+      if (decodedComplete && typeof decodedComplete !== "string") {
+        const typ = decodedComplete.header?.typ;
+        if (!typ || typ.trim().toUpperCase() !== EXPECTED_JWT_TYP) {
+          logger.warn("Non-JWT typ token rejected for API access", { typ });
+          throw new AppError("Invalid credentials format", 401);
+        }
+
+        const decoded = decodedComplete.payload as Record<string, unknown>;
         // Check if this is a challenge token (has 2fa_challenge audience)
         if (decoded.aud === "2fa_challenge" && decoded.iss === "acbu/auth") {
           logger.error("Attempted to use 2FA challenge token for API access");

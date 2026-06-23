@@ -1,6 +1,8 @@
 import { initTracing } from "./config/tracing";
 initTracing();
 
+import "express-async-errors";
+
 import express, {
   type NextFunction,
   type Request,

@@ -151,6 +151,10 @@ describe("webhookController", () => {
   // ── verifyFlutterwaveSignature ─────────────────────────────────────────────
 
   describe("verifyFlutterwaveSignature", () => {
+    const validTimestamp = () => String(Math.floor(Date.now() / 1000));
+    const expiredTimestamp = () => String(Math.floor(Date.now() / 1000) - 600); // 10 min ago
+    const futureTimestamp = () => String(Math.floor(Date.now() / 1000) + 600); // 10 min ahead
+
     it("calls next() with no args on a valid HMAC-SHA256 signature", () => {
       const rawBody = Buffer.from(
         JSON.stringify({ event: "charge.completed" }),
@@ -160,7 +164,7 @@ describe("webhookController", () => {
         .update(rawBody)
         .digest("hex");
       const req = {
-        headers: { "verif-hash": sig },
+        headers: { "verif-hash": sig, "x-flw-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const next = makeNext();
@@ -173,7 +177,7 @@ describe("webhookController", () => {
         JSON.stringify({ event: "charge.completed" }),
       );
       const req = {
-        headers: { "verif-hash": "a".repeat(64) },
+        headers: { "verif-hash": "a".repeat(64), "x-flw-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const res = makeRes();
@@ -186,7 +190,7 @@ describe("webhookController", () => {
 
     it("returns 401 when verif-hash header is absent", () => {
       const rawBody = Buffer.from("{}");
-      const req = { headers: {}, rawBody } as unknown as RawRequest;
+      const req = { headers: { "x-flw-timestamp": validTimestamp() }, rawBody } as unknown as RawRequest;
       const res = makeRes();
       verifyFlutterwaveSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(401);
@@ -196,7 +200,7 @@ describe("webhookController", () => {
     });
 
     it("returns 400 when rawBody is missing", () => {
-      const req = { headers: { "verif-hash": "abc" } } as unknown as RawRequest;
+      const req = { headers: { "verif-hash": "abc", "x-flw-timestamp": validTimestamp() } } as unknown as RawRequest;
       const res = makeRes();
       verifyFlutterwaveSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(400);
@@ -205,18 +209,77 @@ describe("webhookController", () => {
     it("returns 401 when signature length causes timingSafeEqual to throw (caught internally)", () => {
       const rawBody = Buffer.from("{}");
       const req = {
-        headers: { "verif-hash": "tooshort" },
+        headers: { "verif-hash": "tooshort", "x-flw-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const res = makeRes();
       verifyFlutterwaveSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(401);
     });
+
+    // ── #390 timestamp validation ──────────────────────────────────────────
+
+    it("returns 401 when x-flw-timestamp header is absent", () => {
+      const rawBody = Buffer.from("{}");
+      const req = { headers: { "verif-hash": "abc" }, rawBody } as unknown as RawRequest;
+      const res = makeRes();
+      verifyFlutterwaveSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-flw-timestamp is expired (>5 min old)", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "verif-hash": "abc", "x-flw-timestamp": expiredTimestamp() },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyFlutterwaveSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-flw-timestamp is too far in the future (>5 min)", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "verif-hash": "abc", "x-flw-timestamp": futureTimestamp() },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyFlutterwaveSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-flw-timestamp is not a valid number or date", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "verif-hash": "abc", "x-flw-timestamp": "not-a-date" },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyFlutterwaveSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
   });
 
   // ── verifyPaystackSignature ────────────────────────────────────────────────
 
   describe("verifyPaystackSignature", () => {
+    const validTimestamp = () => String(Math.floor(Date.now() / 1000));
+    const expiredTimestamp = () => String(Math.floor(Date.now() / 1000) - 600);
+    const futureTimestamp = () => String(Math.floor(Date.now() / 1000) + 600);
+
     it("calls next() with no args on a valid HMAC-SHA512 signature", () => {
       const rawBody = Buffer.from(JSON.stringify({ event: "charge.success" }));
       const sig = crypto
@@ -224,7 +287,7 @@ describe("webhookController", () => {
         .update(rawBody)
         .digest("hex");
       const req = {
-        headers: { "x-paystack-signature": sig },
+        headers: { "x-paystack-signature": sig, "x-paystack-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const next = makeNext();
@@ -235,7 +298,7 @@ describe("webhookController", () => {
     it("returns 401 on mismatched signature", () => {
       const rawBody = Buffer.from("{}");
       const req = {
-        headers: { "x-paystack-signature": "deadbeef" },
+        headers: { "x-paystack-signature": "deadbeef", "x-paystack-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const res = makeRes();
@@ -248,7 +311,7 @@ describe("webhookController", () => {
 
     it("returns 401 when x-paystack-signature header is absent", () => {
       const rawBody = Buffer.from("{}");
-      const req = { headers: {}, rawBody } as unknown as RawRequest;
+      const req = { headers: { "x-paystack-timestamp": validTimestamp() }, rawBody } as unknown as RawRequest;
       const res = makeRes();
       verifyPaystackSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(401);
@@ -261,11 +324,66 @@ describe("webhookController", () => {
 
     it("returns 400 when rawBody is missing", () => {
       const req = {
-        headers: { "x-paystack-signature": "abc" },
+        headers: { "x-paystack-signature": "abc", "x-paystack-timestamp": validTimestamp() },
       } as unknown as RawRequest;
       const res = makeRes();
       verifyPaystackSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    // ── #390 timestamp validation ──────────────────────────────────────────
+
+    it("returns 401 when x-paystack-timestamp header is absent", () => {
+      const rawBody = Buffer.from("{}");
+      const req = { headers: { "x-paystack-signature": "abc" }, rawBody } as unknown as RawRequest;
+      const res = makeRes();
+      verifyPaystackSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-paystack-timestamp is expired (>5 min old)", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "x-paystack-signature": "abc", "x-paystack-timestamp": expiredTimestamp() },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyPaystackSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-paystack-timestamp is too far in the future (>5 min)", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "x-paystack-signature": "abc", "x-paystack-timestamp": futureTimestamp() },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyPaystackSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-paystack-timestamp is not a valid number or date", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "x-paystack-signature": "abc", "x-paystack-timestamp": "garbage" },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyPaystackSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
     });
   });
 

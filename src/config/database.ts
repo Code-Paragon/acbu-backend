@@ -3,6 +3,10 @@ import { withAccelerate } from "@prisma/extension-accelerate";
 import { config } from "./env";
 import { logger } from "./logger";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
+import {
+  poolAcquireHistogram,
+  poolExhaustedCounter,
+} from "./promMetrics";
 
 // B-056: Validate URL assignments at boot to prevent runtime/migration confusion.
 // DATABASE_URL  → direct PostgreSQL only (used by prisma migrate)
@@ -81,6 +85,22 @@ basePrisma.$use(async (params, next) => {
   });
 });
 
+// #388: Track per-query acquisition + execution latency for Prometheus.
+// The "wait" component is estimated as the time before `next()` returns minus
+// the query execution time; since Prisma doesn't expose a direct wait signal,
+// we instrument total elapsed time labelled by model/action.
+basePrisma.$use(async (params, next) => {
+  const end = poolAcquireHistogram.startTimer({
+    model: params.model ?? "raw",
+    action: params.action,
+  });
+  try {
+    return await next(params);
+  } finally {
+    end();
+  }
+});
+
 // Connection pool exhaustion retry middleware: retry with exponential backoff
 // when Prisma Accelerate returns P2024 (connection pool timeout).
 // Retries up to MAX_RETRIES-1 times (attempt 1 = first try, attempt 4 throws).
@@ -93,6 +113,8 @@ basePrisma.$use(async (params, next) => {
       if (!isPoolExhaustionError(err)) {
         throw err;
       }
+      // #388: count every pool exhaustion regardless of retry outcome
+      poolExhaustedCounter.inc();
       if (attempt < MAX_RETRIES) {
         lastError = err;
         const backoff = BASE_BACKOFF_MS * 2 ** (attempt - 1);

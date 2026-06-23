@@ -143,6 +143,25 @@ export async function connectWithRetry(): Promise<void> {
   const baseBackoff = config.database.connectBaseBackoffMs;
   const maxBackoff = config.database.connectMaxBackoffMs;
 
+  // #381: WAL backup guard — refuse to start in production without confirmed WAL archiving.
+  // Point-in-time recovery is impossible without WAL segments being streamed off-host.
+  if (config.nodeEnv === "production" && !config.walBackup.configured) {
+    throw new Error(
+      "[database] WAL backup is not configured. " +
+        "Set PG_WAL_BACKUP_CONFIGURED=true once WAL archiving / continuous backup is enabled " +
+        "(e.g. pgBackRest, Barman, AWS RDS automated backups, Supabase PITR). " +
+        "A storage failure on the primary will cause permanent data loss without WAL archives.",
+    );
+  }
+
+  if (config.walBackup.configured) {
+    logger.info("[database] WAL backup: configured", {
+      provider: config.walBackup.provider || "unspecified",
+    });
+  } else {
+    logger.warn("[database] WAL backup: NOT configured — point-in-time recovery unavailable");
+  }
+
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {

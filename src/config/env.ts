@@ -52,6 +52,19 @@ const envSchema = z.object({
   DB_CONNECT_MAX_RETRIES: z.coerce.number().int().min(1).default(8),
   DB_CONNECT_BASE_BACKOFF_MS: z.coerce.number().int().min(1).default(250),
   DB_CONNECT_MAX_BACKOFF_MS: z.coerce.number().int().min(1).default(10000),
+
+  // #381: WAL backup configuration guard.
+  // Set to "true" once WAL archiving / continuous backup is enabled on the
+  // database host (e.g. pgBackRest, Barman, AWS RDS automated backups, Supabase
+  // PITR, or any provider that streams WAL segments off-host).
+  // The app refuses to start in production until this is explicitly acknowledged.
+  PG_WAL_BACKUP_CONFIGURED: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
+  // Human-readable label used in boot logs (e.g. "pgbackrest", "rds-automated", "supabase-pitr").
+  PG_WAL_BACKUP_PROVIDER: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -378,6 +391,12 @@ export const config = {
     connectMaxRetries: env.DB_CONNECT_MAX_RETRIES,
     connectBaseBackoffMs: env.DB_CONNECT_BASE_BACKOFF_MS,
     connectMaxBackoffMs: env.DB_CONNECT_MAX_BACKOFF_MS,
+  },
+
+  // #381: WAL / continuous backup configuration
+  walBackup: {
+    configured: env.PG_WAL_BACKUP_CONFIGURED === "true",
+    provider: env.PG_WAL_BACKUP_PROVIDER || "",
   },
 
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)

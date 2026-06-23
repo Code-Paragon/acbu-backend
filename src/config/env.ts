@@ -137,10 +137,6 @@ export const config = {
     downloadUrlTtlSeconds: parseInt(process.env.S3_DOWNLOAD_URL_TTL_SECONDS || "300", 10),
     scanWebhookSecret: process.env.S3_SCAN_WEBHOOK_SECRET || "",
   },
-  bulkTransfer: {
-    chunkSize: parseInt(process.env.BULK_TRANSFER_CHUNK_SIZE || "100", 10),
-    maxFileSizeBytes: parseInt(process.env.BULK_TRANSFER_MAX_FILE_SIZE_BYTES || "10485760", 10),
-  },
   fintech: {
     currencyProviders: ((): Record<string, string> => {
       const raw = process.env.FINTECH_CURRENCY_PROVIDERS;

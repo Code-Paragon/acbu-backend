@@ -2,10 +2,15 @@ import { initTracing } from "./config/tracing";
 initTracing();
 
 import express, { type NextFunction, type Request, type Response } from "express";
+<<<<<<< fix/trust-proxy-config
+import helmet from "helmet";
+=======
+>>>>>>> dev
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
 import { logger } from "./config/logger";
+import { execSync } from "child_process";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
@@ -17,11 +22,18 @@ import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
-import { AppError } from "./middleware/errorHandler";
 import { ErrorCodes } from "./types/errorCodes";
 import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 
 const app: express.Express = express();
+
+// Parse trust proxy hop count safely from environment variables (Default to 0 for local development)
+const trustProxyValue = process.env.TRUST_PROXY
+  ? (isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY))
+  : 0;
+
+app.set("trust proxy", trustProxyValue);
+
 const MAX_REQUEST_BODY_SIZE = "1mb";
 
 // Security middleware

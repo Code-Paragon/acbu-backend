@@ -160,6 +160,7 @@ async function aggregateTransactionsBySegment(): Promise<
       status: { in: ["completed", "processing"] },
       type: { in: ["mint", "burn", "transfer"] },
     },
+    take: 50_000, // #437: cap to prevent OOM on large tables
     select: {
       type: true,
       localCurrency: true,

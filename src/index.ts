@@ -134,6 +134,10 @@ async function startServer() {
       try {
         await connectMongoDB();
         logger.info("MongoDB connected");
+        const { ensureIdempotencyIndex } = await import("./services/idempotency/idempotencyStore");
+        await ensureIdempotencyIndex();
+        const { ensureJobLockIndex } = await import("./utils/jobLock");
+        await ensureJobLockIndex();
       } catch (mongoError) {
         logger.warn(
           "MongoDB unavailable, continuing without cache. Set MONGODB_URI and ensure network access for cache.",

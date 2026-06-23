@@ -3,7 +3,10 @@ import { withAccelerate } from "@prisma/extension-accelerate";
 import { config } from "./env";
 import { logger } from "./logger";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
-import { encryptKycPayload, decryptKycPayload } from "../utils/kycEncryption";
+import {
+  poolAcquireHistogram,
+  poolExhaustedCounter,
+} from "./promMetrics";
 
 // B-056: Validate URL assignments at boot to prevent runtime/migration confusion.
 // DATABASE_URL  → direct PostgreSQL only (used by prisma migrate)
@@ -29,7 +32,42 @@ if (config.prismaAccelerateUrl && !ACCELERATE_PROTOCOL_RE.test(config.prismaAcce
 }
 
 const useAccelerate = Boolean(config.prismaAccelerateUrl);
-const databaseUrl = useAccelerate ? config.prismaAccelerateUrl! : config.databaseUrl;
+
+// #386: When routing through Prisma Accelerate, the proxy enforces its own
+// query timeout (default 10 s, configurable via ACCELERATE_QUERY_TIMEOUT_MS in
+// the Accelerate dashboard).  If Accelerate cancels a query before PostgreSQL
+// does, the backend process keeps running — possibly inside an open transaction —
+// draining connection slots.
+//
+// Fix: inject `options=--statement_timeout=<ms>` into the *direct* DATABASE_URL
+// (used for health probes and migrations) so PostgreSQL cancels the statement
+// itself just before Accelerate would.  The direct URL is not used for runtime
+// traffic when Accelerate is active, but this keeps the timeout in sync for
+// anything that bypasses the proxy (e.g. migration runner, health checks).
+//
+// For runtime traffic through Accelerate, keep ACCELERATE_QUERY_TIMEOUT_MS in
+// the Accelerate dashboard ≥ 10 000 ms and ensure your slowest query completes
+// within that window.
+const STATEMENT_TIMEOUT_MS = parseInt(
+  process.env.DB_STATEMENT_TIMEOUT_MS ?? "9000",
+  10,
+);
+
+function appendStatementTimeout(url: string, timeoutMs: number): string {
+  try {
+    const u = new URL(url);
+    // `options` is a libpq connection parameter; encode the leading `--`
+    u.searchParams.set("options", `--statement_timeout=${timeoutMs}`);
+    return u.toString();
+  } catch {
+    // Malformed URL — leave untouched; boot validation above already caught this
+    return url;
+  }
+}
+
+const databaseUrl = useAccelerate
+  ? config.prismaAccelerateUrl!
+  : appendStatementTimeout(config.databaseUrl, STATEMENT_TIMEOUT_MS);
 
 logger.info(
   `[database] Runtime connection: ${useAccelerate ? "Prisma Accelerate (pooled)" : "direct PostgreSQL"}`,
@@ -93,76 +131,20 @@ basePrisma.$use(async (params, next) => {
   });
 });
 
-// KYC payload encryption middleware: encrypt sensitive extracted/redacted data before write,
-// decrypt after read. Uses AES-256-GCM via PII_ENCRYPTION_KEY.
-const KYC_PAYLOAD_FIELDS = ["machineExtractedPayload", "machineRedactedPayload"] as const;
-
-function encryptKycData(data: Record<string, unknown>): void {
-  for (const field of KYC_PAYLOAD_FIELDS) {
-    if (data[field] !== undefined) {
-      data[field] = encryptKycPayload(data[field]);
-    }
-  }
-}
-
-function decryptKycData(data: Record<string, unknown>): void {
-  for (const field of KYC_PAYLOAD_FIELDS) {
-    if (typeof data[field] === "string") {
-      data[field] = decryptKycPayload(data[field] as string);
-    }
-  }
-}
-
+// #388: Track per-query acquisition + execution latency for Prometheus.
+// The "wait" component is estimated as the time before `next()` returns minus
+// the query execution time; since Prisma doesn't expose a direct wait signal,
+// we instrument total elapsed time labelled by model/action.
 basePrisma.$use(async (params, next) => {
-  if (params.model === "KycApplication") {
-    // Encrypt before writes
-    if (["create", "update", "updateMany", "upsert", "createMany"].includes(params.action)) {
-      const args = params.args as Record<string, unknown> | undefined;
-      if (params.action === "upsert") {
-        if (args?.create && typeof args.create === "object") {
-          encryptKycData(args.create as Record<string, unknown>);
-        }
-        if (args?.update && typeof args.update === "object") {
-          encryptKycData(args.update as Record<string, unknown>);
-        }
-      } else if (params.action === "createMany") {
-        const data = args?.data;
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            encryptKycData(item as Record<string, unknown>);
-          }
-        }
-      } else {
-        if (args?.data && typeof args.data === "object") {
-          encryptKycData(args.data as Record<string, unknown>);
-        }
-      }
-    }
+  const end = poolAcquireHistogram.startTimer({
+    model: params.model ?? "raw",
+    action: params.action,
+  });
+  try {
+    return await next(params);
+  } finally {
+    end();
   }
-
-  const result = await next(params);
-
-  // Decrypt after reads AND mutation returns (create/update/upsert return the full row)
-  if (params.model === "KycApplication") {
-    if (
-      ["findUnique", "findFirst", "findUniqueOrThrow", "findFirstOrThrow", "create", "update", "upsert"].includes(
-        params.action,
-      )
-    ) {
-      if (result && typeof result === "object") {
-        decryptKycData(result as Record<string, unknown>);
-      }
-    }
-    if (params.action === "findMany") {
-      if (Array.isArray(result)) {
-        for (const row of result) {
-          decryptKycData(row as Record<string, unknown>);
-        }
-      }
-    }
-  }
-
-  return result;
 });
 
 // Connection pool exhaustion retry middleware: retry with exponential backoff
@@ -177,6 +159,8 @@ basePrisma.$use(async (params, next) => {
       if (!isPoolExhaustionError(err)) {
         throw err;
       }
+      // #388: count every pool exhaustion regardless of retry outcome
+      poolExhaustedCounter.inc();
       if (attempt < MAX_RETRIES) {
         lastError = err;
         const backoff = BASE_BACKOFF_MS * 2 ** (attempt - 1);

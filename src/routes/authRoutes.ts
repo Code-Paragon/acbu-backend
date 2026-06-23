@@ -97,6 +97,7 @@ import {
  *                 type: string
  *                 minLength: 1
  *                 description: Username, email, or E.164 phone number
+ *                 example: "@alice"
  *               passcode:
  *                 type: string
  *                 minLength: 1
@@ -271,47 +272,14 @@ router.post(
 router.post("/signout", validateApiKey, apiKeyRateLimiter, postSignout);
 
 // Privileged key lifecycle requires authenticated user + MFA challenge verification.
-router.post(
-  "/admin/challenge",
-  validateApiKey,
-  apiKeyRateLimiter,
-  postAdminMfaChallenge,
-);
-router.post(
-  "/keys/admin",
-  validateApiKey,
-  apiKeyRateLimiter,
-  postIssueAdminKey,
-);
-router.post(
-  "/keys/break-glass",
-  validateApiKey,
-  apiKeyRateLimiter,
-  postIssueBreakGlassKey,
-);
-router.get(
-  "/keys/privileged",
-  validateApiKey,
-  apiKeyRateLimiter,
-  getPrivilegedKeys,
-);
-router.post(
-  "/keys/:id/revoke",
-  validateApiKey,
-  apiKeyRateLimiter,
-  postRevokePrivilegedKey,
-);
+router.post("/admin/challenge", validateApiKey, apiKeyRateLimiter, postAdminMfaChallenge);
+router.post("/keys/admin", validateApiKey, apiKeyRateLimiter, postIssueAdminKey);
+router.post("/keys/break-glass", validateApiKey, apiKeyRateLimiter, postIssueBreakGlassKey);
+router.get("/keys/privileged", validateApiKey, apiKeyRateLimiter, getPrivilegedKeys);
+router.post("/keys/:id/revoke", validateApiKey, apiKeyRateLimiter, postRevokePrivilegedKey);
 
 // Refresh token endpoints
-router.post(
-  "/refresh-token",
-  authRateLimiter,
-  postRefreshAccessToken,
-);
-router.post(
-  "/refresh-token/revoke",
-  authRateLimiter,
-  postRevokeRefreshToken,
-);
+router.post("/refresh-token", authRateLimiter, postRefreshAccessToken);
+router.post("/refresh-token/revoke", authRateLimiter, postRevokeRefreshToken);
 
 export default router;

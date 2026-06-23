@@ -86,6 +86,40 @@ export const config = {
     10,
   ),
 
+  // Redis cache (Sentinel / standalone)
+  redis: {
+    url: process.env.REDIS_URL || "",
+    sentinels: (() => {
+      const raw = process.env.REDIS_SENTINELS || "";
+      if (!raw) return [];
+      return raw
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => {
+          const [host, port] = entry.split(":");
+          return {
+            host,
+            port: parseInt(port || "26379", 10),
+          };
+        });
+    })(),
+    sentinelName: process.env.REDIS_SENTINEL_NAME || "",
+    password: process.env.REDIS_PASSWORD || "",
+    maxRetriesPerRequest: parseInt(
+      process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3",
+      10,
+    ),
+    readonlyRetryAttempts: parseInt(
+      process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3",
+      10,
+    ),
+    readonlyRetryDelayMs: parseInt(
+      process.env.REDIS_READONLY_RETRY_DELAY_MS || "100",
+      10,
+    ),
+  },
+
   // Logging
   logLevel: env.LOG_LEVEL,
   logFile: process.env.LOG_FILE || "logs/app.log",

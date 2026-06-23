@@ -23,10 +23,12 @@ import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 
 const app: express.Express = express();
 
-// Trust the first reverse proxy hop (e.g. nginx) so req.ip returns the real
-// client IP. Without this, rate limiting and audit logging will always see
-// 127.0.0.1, breaking IP-based enforcement and client attribution.
-app.set("trust proxy", 1);
+// Parse trust proxy hop count safely from environment variables (Default to 0 for local development)
+const trustProxyValue = process.env.TRUST_PROXY
+  ? (isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY))
+  : 0;
+
+app.set("trust proxy", trustProxyValue);
 
 const MAX_REQUEST_BODY_SIZE = "1mb";
 

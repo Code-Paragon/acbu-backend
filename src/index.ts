@@ -1,11 +1,7 @@
 import { initTracing } from "./config/tracing";
 initTracing();
 
-import express, {
-  type NextFunction,
-  type Request,
-  type Response,
-} from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
@@ -13,7 +9,7 @@ import { config } from "./config/env";
 import { logger } from "./config/logger";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
-import { prisma } from "./config/database";
+import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler, AppError } from "./middleware/errorHandler";
@@ -55,19 +51,9 @@ app.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
 // ── Webhook Content-Type validation ────────────────────────────────────────────
 // Must check Content-Type BEFORE raw body parser, since non-JSON bodies would
 // bypass parsing and cause unexpected behavior in signature verification.
-function validateWebhookContentType(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
+function validateWebhookContentType(req: Request, _res: Response, next: NextFunction): void {
   if (!req.is("application/json")) {
-    return next(
-      new AppError(
-        "Content-Type must be application/json",
-        415,
-        "INVALID_CONTENT_TYPE",
-      ),
-    );
+    return next(new AppError("Content-Type must be application/json", 415, "INVALID_CONTENT_TYPE"));
   }
   next();
 }
@@ -139,6 +125,10 @@ async function startServer() {
     logger.info("Applying Prisma migrations...");
     execSync("npx prisma migrate deploy", { stdio: "inherit" });
     logger.info("Prisma migrations applied successfully");
+
+    // Establish the DB connection with backoff + jitter so coordinated restarts
+    // don't stampede the database's connection slots (#402).
+    await connectWithRetry();
 
     // Connect to MongoDB (optional: server starts even if unreachable or MONGODB_URI empty)
     if (config.mongodbUri) {
@@ -222,8 +212,7 @@ async function startServer() {
       await startInvestmentWithdrawalScheduler();
 
       // Start yield accrual scheduler (run once at startup to seed accruals)
-      const { startYieldAccrualScheduler } =
-        await import("./jobs/yieldAccrualJob");
+      const { startYieldAccrualScheduler } = await import("./jobs/yieldAccrualJob");
       await startYieldAccrualScheduler();
 
       // Start weekly weight drift audit job (Monday 00:00 UTC)
@@ -252,8 +241,7 @@ async function startServer() {
     void eventListener.start();
 
     // Mark application as ready for health checks
-    const { markStartupComplete } =
-      await import("./services/health/healthService");
+    const { markStartupComplete } = await import("./services/health/healthService");
     markStartupComplete();
 
     // Start HTTP server

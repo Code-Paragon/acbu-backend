@@ -7,6 +7,7 @@ import { prisma } from "../config/database";
 import { AuthRequest } from "../middleware/auth";
 import { Decimal } from "@prisma/client/runtime/library";
 import { AppError } from "../middleware/errorHandler";
+import { encodeCursor, decodeCursor } from "../middleware/pagination";
 import {
   INVESTMENT_BUSINESS_ALLOWED_DAYS,
   INVESTMENT_FORCED_REMOVAL_FEE_PERCENT,
@@ -17,10 +18,7 @@ export const requestSchema = z.object({
   amount_acbu: z
     .string()
     .min(1)
-    .refine(
-      (s) => !Number.isNaN(Number(s)) && Number(s) > 0,
-      "must be positive",
-    ),
+    .refine((s) => !Number.isNaN(Number(s)) && Number(s) > 0, "must be positive"),
   audience: z.enum(["retail", "business"]),
   forced_removal: z.boolean().optional(),
 });
@@ -41,12 +39,7 @@ export async function postInvestmentWithdrawRequest(
     }
     const parsed = requestSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new AppError(
-        "Invalid request",
-        400,
-        "VALIDATION_ERROR",
-        parsed.error.flatten(),
-      );
+      throw new AppError("Invalid request", 400, "VALIDATION_ERROR", parsed.error.flatten());
     }
     const { amount_acbu, audience, forced_removal } = parsed.data;
     const amountNum = Number(amount_acbu);
@@ -93,21 +86,14 @@ export async function postInvestmentWithdrawRequest(
         audience === "retail"
           ? "Funds will be available in 24 hours. You will receive a notification when ready."
           : "Funds will be available in 24 hours." +
-            (feePercent
-              ? ` A ${feePercent}% fee applies (forced removal).`
-              : ""),
+            (feePercent ? ` A ${feePercent}% fee applies (forced removal).` : ""),
     });
   } catch (e) {
     next(e);
   }
 }
 
-const WITHDRAWAL_STATUSES = [
-  "requested",
-  "available",
-  "completed",
-  "cancelled",
-] as const;
+const WITHDRAWAL_STATUSES = ["requested", "available", "completed", "cancelled"] as const;
 
 export const getWithdrawRequestsQuerySchema = z.object({
   limit: z
@@ -139,6 +125,10 @@ export async function getInvestmentWithdrawRequests(
       throw new AppError(msg, 400);
     }
     const { limit, cursor, status } = query.data;
+    // Bind the cursor to the caller's scope (user or org) and verify its
+    // signature so it cannot be forged to page into another scope's rows (#405).
+    const cursorScope = userId ?? organizationId ?? "";
+    const cursorId = decodeCursor(cursor, cursorScope);
 
     const where = {
       ...(userId ? { userId } : { organizationId }),
@@ -149,12 +139,12 @@ export async function getInvestmentWithdrawRequests(
       where,
       orderBy: { createdAt: "desc" },
       take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
     });
 
     const hasMore = list.length > limit;
     const page = hasMore ? list.slice(0, limit) : list;
-    const nextCursor = hasMore ? page[page.length - 1].id : null;
+    const nextCursor = hasMore ? encodeCursor(page[page.length - 1].id, cursorScope) : null;
     type WithdrawalRequestRow = (typeof list)[number];
 
     res.status(200).json({

@@ -13,6 +13,7 @@ import { logger, logFinancialEvent } from "../config/logger";
 import { prisma } from "../config/database";
 import { getFintechRouter } from "../services/fintech";
 import type { DisburseRecipient } from "../services/fintech/types";
+import { getQueueMaxRetries } from "./queueConfig";
 
 export interface WithdrawalPayload {
   transactionId: string;
@@ -29,6 +30,9 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
     async (msg: ConsumeMessage | null) => {
       if (!msg) return;
       const correlationId = randomUUID();
+      const headers = msg.properties.headers ?? {};
+      const retries = typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
+      const MAX_RETRIES = getQueueMaxRetries(queue);
       try {
         const body = JSON.parse(msg.content.toString()) as WithdrawalPayload;
         const { transactionId, txHash } = body;
@@ -219,13 +223,42 @@ export async function startWithdrawalProcessingConsumer(): Promise<void> {
             currency,
             amount,
           );
-          ch.nack(msg, false, true);
+          if (retries >= MAX_RETRIES) {
+            logger.error("Withdrawal processing job failed permanently, sending to DLQ", {
+              transactionId,
+              retries,
+            });
+            ch.nack(msg, false, false);
+            return;
+          }
+          ch.sendToQueue(queue, msg.content, {
+            persistent: true,
+            headers: {
+              ...headers,
+              "x-retries": retries + 1,
+            },
+          });
+          ch.ack(msg);
           return;
         }
         ch.ack(msg);
       } catch (e) {
         logger.error("Withdrawal job failed", { error: e });
-        ch.nack(msg, false, true);
+        if (retries >= MAX_RETRIES) {
+          logger.error("Withdrawal processing job failed permanently, sending to DLQ", {
+            retries,
+          });
+          ch.nack(msg, false, false);
+          return;
+        }
+        ch.sendToQueue(queue, msg.content, {
+          persistent: true,
+          headers: {
+            ...headers,
+            "x-retries": retries + 1,
+          },
+        });
+        ch.ack(msg);
       }
     },
     { noAck: false },

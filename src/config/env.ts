@@ -92,6 +92,40 @@ export const config = {
     10,
   ),
 
+  // Redis cache (Sentinel / standalone)
+  redis: {
+    url: process.env.REDIS_URL || "",
+    sentinels: (() => {
+      const raw = process.env.REDIS_SENTINELS || "";
+      if (!raw) return [];
+      return raw
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => {
+          const [host, port] = entry.split(":");
+          return {
+            host,
+            port: parseInt(port || "26379", 10),
+          };
+        });
+    })(),
+    sentinelName: process.env.REDIS_SENTINEL_NAME || "",
+    password: process.env.REDIS_PASSWORD || "",
+    maxRetriesPerRequest: parseInt(
+      process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3",
+      10,
+    ),
+    readonlyRetryAttempts: parseInt(
+      process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3",
+      10,
+    ),
+    readonlyRetryDelayMs: parseInt(
+      process.env.REDIS_READONLY_RETRY_DELAY_MS || "100",
+      10,
+    ),
+  },
+
   // Logging
   logLevel: env.LOG_LEVEL,
   logFile: process.env.LOG_FILE || "logs/app.log",
@@ -271,8 +305,21 @@ export const config = {
 
   // Notifications (email / SMS)
   notification: {
-    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as "sendgrid" | "ses" | "log",
+    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as
+      | "sendgrid"
+      | "ses"
+      | "smtp"
+      | "log",
     emailFrom: process.env.NOTIFICATION_FROM_EMAIL || "noreply@acbu.io",
+    smtp: {
+      host: process.env.SMTP_HOST || "",
+      port: parseInt(process.env.SMTP_PORT || "587", 10),
+      secure: process.env.SMTP_SECURE === "true",
+      user: process.env.SMTP_USER || "",
+      pass: process.env.SMTP_PASS || "",
+      maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS || "5", 10),
+      maxMessages: parseInt(process.env.SMTP_MAX_MESSAGES || "100", 10),
+    },
     sendgridApiKey: process.env.SENDGRID_API_KEY || "",
     sesRegion: process.env.AWS_REGION || process.env.AWS_SES_REGION || "us-east-1",
     sesAccessKeyId: process.env.AWS_ACCESS_KEY_ID || "",

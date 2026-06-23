@@ -265,8 +265,21 @@ export const config = {
 
   // Notifications (email / SMS)
   notification: {
-    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as "sendgrid" | "ses" | "log",
+    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as
+      | "sendgrid"
+      | "ses"
+      | "smtp"
+      | "log",
     emailFrom: process.env.NOTIFICATION_FROM_EMAIL || "noreply@acbu.io",
+    smtp: {
+      host: process.env.SMTP_HOST || "",
+      port: parseInt(process.env.SMTP_PORT || "587", 10),
+      secure: process.env.SMTP_SECURE === "true",
+      user: process.env.SMTP_USER || "",
+      pass: process.env.SMTP_PASS || "",
+      maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS || "5", 10),
+      maxMessages: parseInt(process.env.SMTP_MAX_MESSAGES || "100", 10),
+    },
     sendgridApiKey: process.env.SENDGRID_API_KEY || "",
     sesRegion: process.env.AWS_REGION || process.env.AWS_SES_REGION || "us-east-1",
     sesAccessKeyId: process.env.AWS_ACCESS_KEY_ID || "",

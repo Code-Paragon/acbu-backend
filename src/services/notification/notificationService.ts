@@ -14,6 +14,7 @@
 import axios from "axios";
 import { config } from "../../config/env";
 import { logger } from "../../config/logger";
+import { sendSmtpEmail, sendSmtpEmailBatch, type SmtpEmailMessage } from "../email";
 
 const cfg = config.notification;
 
@@ -22,6 +23,16 @@ export async function sendEmail(
   subject: string,
   body: string,
 ): Promise<void> {
+  if (cfg.emailProvider === "smtp") {
+    try {
+      await sendSmtpEmail(to, subject, body);
+      logger.info("Email sent via SMTP", { to: to ? "***" : undefined });
+    } catch (e) {
+      logger.error("SMTP send failed", { error: e });
+      throw e;
+    }
+    return;
+  }
   if (cfg.emailProvider === "log") {
     logger.info("NotificationService (email log)", {
       to: process.env.NODE_ENV === "production" ? (to ? "***" : undefined) : to,
@@ -80,6 +91,27 @@ export async function sendEmail(
     to: to ? "***" : undefined,
     subject,
   });
+}
+
+export async function sendEmailBatch(messages: SmtpEmailMessage[]): Promise<void> {
+  if (messages.length === 0) {
+    return;
+  }
+
+  if (cfg.emailProvider === "smtp") {
+    try {
+      await sendSmtpEmailBatch(messages);
+      logger.info("Email batch sent via SMTP", { count: messages.length });
+    } catch (e) {
+      logger.error("SMTP batch send failed", { error: e, count: messages.length });
+      throw e;
+    }
+    return;
+  }
+
+  for (const message of messages) {
+    await sendEmail(message.to, message.subject, message.body);
+  }
 }
 
 export async function sendSms(to: string, body: string): Promise<void> {

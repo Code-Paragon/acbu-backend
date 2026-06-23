@@ -113,7 +113,7 @@ describe("mintController", () => {
           amount: "100",
           wallet_address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
         },
-      } as AuthRequest,
+      } as unknown as AuthRequest,
       res,
       next,
     );
@@ -123,6 +123,28 @@ describe("mintController", () => {
     expect(err).toBeInstanceOf(AppError);
     expect(err.statusCode).toBe(403);
     expect(err.message).toBe("Wallet address does not match user");
+  });
+
+  it("rejects unsupported basket deposit currencies with a clear error", async () => {
+    const res = makeRes();
+    const next = makeNext();
+    await depositFromBasketCurrency(
+      {
+        apiKey: { id: "key-1", userId: "user-1", organizationId: null, permissions: [], rateLimit: 100 },
+        body: {
+          currency: "JPY",
+          amount: "100",
+          wallet_address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        },
+      } as unknown as AuthRequest,
+      res,
+      next,
+    );
+
+    const err = (next as jest.Mock).mock.calls[0][0] as AppError;
+    expect(err).toBeInstanceOf(AppError);
+    expect(err.statusCode).toBe(400);
+    expect(err.message).toContain("currency must be one of");
   });
 
   it("returns the existing mint transaction on duplicate idempotency key", async () => {

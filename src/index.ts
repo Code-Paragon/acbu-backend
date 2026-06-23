@@ -18,6 +18,7 @@ import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
+import { requestMetricsMiddleware } from "./middleware/metrics";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
@@ -113,8 +114,9 @@ app.use(
   },
 );
 
-// Logging
+// Logging and per-endpoint response-time histograms (P50/P95/P99)
 app.use(requestLogger);
+app.use(requestMetricsMiddleware);
 
 // Rate limiting
 app.use(standardRateLimiter);

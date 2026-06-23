@@ -360,17 +360,6 @@ export class MintingService {
       const feeRate = ContractClient.fromScVal(result);
       return Number(feeRate);
     } catch (error) {
-      if ((params as any).txId) {
-        try {
-          await prisma.transaction.update({
-            where: { id: (params as any).txId },
-            data: { status: "FAILED" }
-          });
-          logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
-        } catch (dbError) {
-          logger.error("CRITICAL: DB compensation failed", { txId: (params as any).txId, dbError });
-        }
-      }
       logger.error("Failed to get fee rate", { error });
       throw error;
     }
@@ -389,17 +378,6 @@ export class MintingService {
 
       return ContractClient.fromScVal(result) as boolean;
     } catch (error) {
-      if ((params as any).txId) {
-        try {
-          await prisma.transaction.update({
-            where: { id: (params as any).txId },
-            data: { status: "FAILED" }
-          });
-          logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
-        } catch (dbError) {
-          logger.error("CRITICAL: DB compensation failed", { txId: (params as any).txId, dbError });
-        }
-      }
       logger.error("Failed to check pause status", { error });
       throw error;
     }
@@ -428,17 +406,6 @@ export class MintingService {
 
       return result.transactionHash;
     } catch (error) {
-      if ((params as any).txId) {
-        try {
-          await prisma.transaction.update({
-            where: { id: (params as any).txId },
-            data: { status: "FAILED" }
-          });
-          logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
-        } catch (dbError) {
-          logger.error("CRITICAL: DB compensation failed", { txId: (params as any).txId, dbError });
-        }
-      }
       logger.error("Failed to pause contract", { error });
       throw error;
     }
@@ -467,17 +434,6 @@ export class MintingService {
 
       return result.transactionHash;
     } catch (error) {
-      if ((params as any).txId) {
-        try {
-          await prisma.transaction.update({
-            where: { id: (params as any).txId },
-            data: { status: "FAILED" }
-          });
-          logger.info(`Compensated: Marked transaction ${(params as any).txId} as FAILED`);
-        } catch (dbError) {
-          logger.error("CRITICAL: DB compensation failed", { txId: (params as any).txId, dbError });
-        }
-      }
       logger.error("Failed to unpause contract", { error });
       throw error;
     }

@@ -17,6 +17,8 @@ import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
+import { AppError } from "./middleware/errorHandler";
+import { ErrorCodes } from "./types/errorCodes";
 import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 
 const app: express.Express = express();
@@ -52,8 +54,7 @@ app.use(
     try {
       (req as unknown as { body: unknown }).body = JSON.parse(raw.toString());
     } catch {
-      res.status(400).json({ error: "Invalid JSON payload" });
-      return;
+      throw new AppError("Invalid JSON payload", 400, ErrorCodes.INVALID_JSON);
     }
     next();
   },

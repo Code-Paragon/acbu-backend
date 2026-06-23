@@ -1,6 +1,7 @@
 import { validateApiKey, generateApiKey, hashApiKey } from "./auth";
 import { prisma } from "../config/database";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { AppError } from "./errorHandler";
 import type { AuthRequest } from "./auth";
 import type { Response, NextFunction } from "express";
@@ -61,6 +62,25 @@ describe("auth middleware", () => {
       const err = (mockNext as jest.Mock).mock.calls[0][0] as AppError;
       expect(err.statusCode).toBe(401);
       expect(err.message).toBe("Invalid API key format");
+    });
+
+    it("rejects OAuth access-token style JWTs with typ at+JWT — 401", async () => {
+      const oauthStyleToken = jwt.sign(
+        { sub: "user-1", aud: "api_session", iss: "acbu/auth" },
+        "oauth-shared-secret",
+        { header: { typ: "at+JWT", alg: "HS256" } },
+      );
+
+      await validateApiKey(
+        makeReq({ headers: { authorization: `Bearer ${oauthStyleToken}` } }),
+        mockRes,
+        mockNext,
+      );
+
+      const err = (mockNext as jest.Mock).mock.calls[0][0] as AppError;
+      expect(err.statusCode).toBe(401);
+      expect(err.message).toBe("Invalid credentials format");
+      expect(prisma.apiKey.findFirst).not.toHaveBeenCalled();
     });
 
     it("rejects when lookup key not in DB — 401", async () => {

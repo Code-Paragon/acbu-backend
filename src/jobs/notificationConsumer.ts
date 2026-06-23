@@ -7,6 +7,7 @@ import { logger } from "../config/logger";
 import { prisma } from "../config/database";
 import {
   sendEmail,
+  sendEmailBatch,
   sendSms,
   renderOtpTemplate,
   renderWithdrawalStatusTemplate,
@@ -99,13 +100,19 @@ async function processNotification(
         where: { organizationId },
         select: { email: true, phoneE164: true },
       });
+      const emailBatch = orgUsers
+        .filter((user) => user.email)
+        .map((user) => ({
+          to: user.email as string,
+          subject: "Organization investment withdrawal is ready",
+          body,
+        }));
+
+      if (emailBatch.length > 0) {
+        await sendEmailBatch(emailBatch);
+      }
+
       for (const user of orgUsers) {
-        if (user.email)
-          await sendEmail(
-            user.email,
-            "Organization investment withdrawal is ready",
-            body,
-          );
         if (user.phoneE164) await sendSms(user.phoneE164, body);
       }
     }

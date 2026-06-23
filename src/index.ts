@@ -1,7 +1,17 @@
 import { initTracing } from "./config/tracing";
 initTracing();
 
+<<<<<<< HEAD
 import express, { type NextFunction, type Request, type Response } from "express";
+=======
+import "express-async-errors";
+
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
+>>>>>>> upstream/main
 import helmet from "helmet";
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
@@ -12,11 +22,14 @@ import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
+import { requestMetricsMiddleware } from "./middleware/metrics";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
+import { AppError } from "./middleware/errorHandler";
+import { ErrorCodes } from "./types/errorCodes";
 import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 
 const app: express.Express = express();
@@ -67,8 +80,7 @@ app.use(
     try {
       (req as unknown as { body: unknown }).body = JSON.parse(raw.toString());
     } catch {
-      res.status(400).json({ error: "Invalid JSON payload" });
-      return;
+      throw new AppError("Invalid JSON payload", 400, ErrorCodes.INVALID_JSON);
     }
     next();
   },
@@ -96,8 +108,9 @@ app.use(
   },
 );
 
-// Logging
+// Logging and per-endpoint response-time histograms (P50/P95/P99)
 app.use(requestLogger);
+app.use(requestMetricsMiddleware);
 
 // Rate limiting
 app.use(standardRateLimiter);

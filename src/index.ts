@@ -35,6 +35,33 @@ const trustProxyValue = process.env.TRUST_PROXY
 app.set("trust proxy", trustProxyValue);
 
 const MAX_REQUEST_BODY_SIZE = "1mb";
+const SUPPORTED_REQUEST_ENCODINGS = new Set(["identity", "gzip"]);
+
+function normalizeContentEncoding(req: Request): string {
+  const header = req.headers["content-encoding"];
+  const value = Array.isArray(header) ? header[0] : header;
+  return (value || "identity").trim().toLowerCase() || "identity";
+}
+
+function validateRequestContentEncoding(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void {
+  const encoding = normalizeContentEncoding(req);
+
+  if (!SUPPORTED_REQUEST_ENCODINGS.has(encoding)) {
+    return next(
+      new AppError(
+        "Unsupported Content-Encoding. Use identity or gzip.",
+        415,
+        "UNSUPPORTED_CONTENT_ENCODING",
+      ),
+    );
+  }
+
+  next();
+}
 
 // Security middleware
 app.use(securityHeadersMiddleware);
@@ -43,7 +70,9 @@ app.use(corsMiddleware);
 // Compress all JSON/text responses to reduce bandwidth on large payloads
 app.use(compression());
 
-app.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
+// Validate and explicitly enable request body inflation for gzip-compressed clients (#409).
+app.use(validateRequestContentEncoding);
+app.use(express.urlencoded({ extended: true, inflate: true, limit: MAX_REQUEST_BODY_SIZE }));
 
 // ── Webhook Content-Type validation ────────────────────────────────────────────
 // Must check Content-Type BEFORE raw body parser, since non-JSON bodies would
@@ -59,7 +88,7 @@ function validateWebhookContentType(req: Request, _res: Response, next: NextFunc
 app.use(
   `/${config.apiVersion}/webhooks`,
   validateWebhookContentType,
-  express.raw({ type: "application/json" }),
+  express.raw({ inflate: true, limit: MAX_REQUEST_BODY_SIZE, type: "application/json" }),
   (req: express.Request, res: express.Response, next) => {
     const raw = req.body as Buffer;
     (req as unknown as { rawBody: Buffer }).rawBody = raw;
@@ -72,7 +101,7 @@ app.use(
   },
   webhookRoutes,
 );
-app.use(express.json({ limit: MAX_REQUEST_BODY_SIZE }));
+app.use(express.json({ inflate: true, limit: MAX_REQUEST_BODY_SIZE }));
 
 app.use(
   (
@@ -86,6 +115,15 @@ app.use(
         error: {
           code: "PAYLOAD_TOO_LARGE",
           message: "Request body exceeds maximum allowed size",
+        },
+      });
+      return;
+    }
+    if (err?.type === "encoding.unsupported") {
+      res.status(415).json({
+        error: {
+          code: "UNSUPPORTED_CONTENT_ENCODING",
+          message: "Unsupported request body encoding",
         },
       });
       return;

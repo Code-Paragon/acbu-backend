@@ -28,7 +28,42 @@ if (config.prismaAccelerateUrl && !ACCELERATE_PROTOCOL_RE.test(config.prismaAcce
 }
 
 const useAccelerate = Boolean(config.prismaAccelerateUrl);
-const databaseUrl = useAccelerate ? config.prismaAccelerateUrl! : config.databaseUrl;
+
+// #386: When routing through Prisma Accelerate, the proxy enforces its own
+// query timeout (default 10 s, configurable via ACCELERATE_QUERY_TIMEOUT_MS in
+// the Accelerate dashboard).  If Accelerate cancels a query before PostgreSQL
+// does, the backend process keeps running — possibly inside an open transaction —
+// draining connection slots.
+//
+// Fix: inject `options=--statement_timeout=<ms>` into the *direct* DATABASE_URL
+// (used for health probes and migrations) so PostgreSQL cancels the statement
+// itself just before Accelerate would.  The direct URL is not used for runtime
+// traffic when Accelerate is active, but this keeps the timeout in sync for
+// anything that bypasses the proxy (e.g. migration runner, health checks).
+//
+// For runtime traffic through Accelerate, keep ACCELERATE_QUERY_TIMEOUT_MS in
+// the Accelerate dashboard ≥ 10 000 ms and ensure your slowest query completes
+// within that window.
+const STATEMENT_TIMEOUT_MS = parseInt(
+  process.env.DB_STATEMENT_TIMEOUT_MS ?? "9000",
+  10,
+);
+
+function appendStatementTimeout(url: string, timeoutMs: number): string {
+  try {
+    const u = new URL(url);
+    // `options` is a libpq connection parameter; encode the leading `--`
+    u.searchParams.set("options", `--statement_timeout=${timeoutMs}`);
+    return u.toString();
+  } catch {
+    // Malformed URL — leave untouched; boot validation above already caught this
+    return url;
+  }
+}
+
+const databaseUrl = useAccelerate
+  ? config.prismaAccelerateUrl!
+  : appendStatementTimeout(config.databaseUrl, STATEMENT_TIMEOUT_MS);
 
 logger.info(
   `[database] Runtime connection: ${useAccelerate ? "Prisma Accelerate (pooled)" : "direct PostgreSQL"}`,

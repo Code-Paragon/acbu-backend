@@ -18,6 +18,7 @@ import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
+import { userAgentFilter } from "./middleware/userAgentFilter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
@@ -108,6 +109,9 @@ app.use(requestLogger);
 
 // Rate limiting
 app.use(standardRateLimiter);
+
+// Block known scanners, credential-stuffing tools, and headless abuse scripts
+app.use(userAgentFilter);
 
 // API Documentation — disabled in production to prevent endpoint enumeration (#274)
 if (config.nodeEnv !== "production") {

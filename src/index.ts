@@ -2,10 +2,6 @@ import { initTracing } from "./config/tracing";
 initTracing();
 
 import express, { type NextFunction, type Request, type Response } from "express";
-<<<<<<< fix/trust-proxy-config
-import helmet from "helmet";
-=======
->>>>>>> dev
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
@@ -23,7 +19,8 @@ import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
 import { ErrorCodes } from "./types/errorCodes";
-import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
+import { registerGracefulShutdown, setHttpServer, setMemoryMonitorHandle } from "./gracefulShutdown";
+import { startMemoryMonitor } from "./utils/memoryMonitor";
 
 const app: express.Express = express();
 
@@ -282,6 +279,10 @@ async function startServer() {
     // Mark application as ready for health checks
     const { markStartupComplete } = await import("./services/health/healthService");
     markStartupComplete();
+
+    // #436: Start heap usage monitor — logs warnings/errors and writes heap snapshots on leak detection.
+    const memoryMonitorHandle = startMemoryMonitor();
+    setMemoryMonitorHandle(memoryMonitorHandle);
 
     // Start HTTP server
     const server = app.listen(config.port, () => {

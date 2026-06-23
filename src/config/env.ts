@@ -365,6 +365,9 @@ export const config = {
     failOpenRetryBaseMs: env.OPENAI_FAIL_OPEN_RETRY_BASE_MS,
   },
 
+  // PII encryption key for KYC and sensitive field encryption
+  piiEncryptionKey: env.PII_ENCRYPTION_KEY,
+
   // Startup database connection retry (#402)
   database: {
     connectMaxRetries: env.DB_CONNECT_MAX_RETRIES,

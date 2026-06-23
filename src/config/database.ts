@@ -3,6 +3,7 @@ import { withAccelerate } from "@prisma/extension-accelerate";
 import { config } from "./env";
 import { logger } from "./logger";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
+import { encryptKycPayload, decryptKycPayload } from "../utils/kycEncryption";
 
 // B-056: Validate URL assignments at boot to prevent runtime/migration confusion.
 // DATABASE_URL  → direct PostgreSQL only (used by prisma migrate)
@@ -92,26 +93,76 @@ basePrisma.$use(async (params, next) => {
   });
 });
 
-basePrismaReplica.$use(async (params, next) => {
-  const tracer = trace.getTracer("prisma");
-  const spanName = `prisma.replica.${params.model ?? "raw"}.${params.action}`;
-  return tracer.startActiveSpan(spanName, async (span) => {
-    span.setAttributes({
-      "db.system": "postgresql",
-      "db.operation": params.action,
-      ...(params.model ? { "db.prisma.model": params.model } : {}),
-    });
-    try {
-      const result = await next(params);
-      span.setStatus({ code: SpanStatusCode.OK });
-      return result;
-    } catch (err) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
-      throw err;
-    } finally {
-      span.end();
+// KYC payload encryption middleware: encrypt sensitive extracted/redacted data before write,
+// decrypt after read. Uses AES-256-GCM via PII_ENCRYPTION_KEY.
+const KYC_PAYLOAD_FIELDS = ["machineExtractedPayload", "machineRedactedPayload"] as const;
+
+function encryptKycData(data: Record<string, unknown>): void {
+  for (const field of KYC_PAYLOAD_FIELDS) {
+    if (data[field] !== undefined) {
+      data[field] = encryptKycPayload(data[field]);
     }
-  });
+  }
+}
+
+function decryptKycData(data: Record<string, unknown>): void {
+  for (const field of KYC_PAYLOAD_FIELDS) {
+    if (typeof data[field] === "string") {
+      data[field] = decryptKycPayload(data[field] as string);
+    }
+  }
+}
+
+basePrisma.$use(async (params, next) => {
+  if (params.model === "KycApplication") {
+    // Encrypt before writes
+    if (["create", "update", "updateMany", "upsert", "createMany"].includes(params.action)) {
+      const args = params.args as Record<string, unknown> | undefined;
+      if (params.action === "upsert") {
+        if (args?.create && typeof args.create === "object") {
+          encryptKycData(args.create as Record<string, unknown>);
+        }
+        if (args?.update && typeof args.update === "object") {
+          encryptKycData(args.update as Record<string, unknown>);
+        }
+      } else if (params.action === "createMany") {
+        const data = args?.data;
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            encryptKycData(item as Record<string, unknown>);
+          }
+        }
+      } else {
+        if (args?.data && typeof args.data === "object") {
+          encryptKycData(args.data as Record<string, unknown>);
+        }
+      }
+    }
+  }
+
+  const result = await next(params);
+
+  // Decrypt after reads AND mutation returns (create/update/upsert return the full row)
+  if (params.model === "KycApplication") {
+    if (
+      ["findUnique", "findFirst", "findUniqueOrThrow", "findFirstOrThrow", "create", "update", "upsert"].includes(
+        params.action,
+      )
+    ) {
+      if (result && typeof result === "object") {
+        decryptKycData(result as Record<string, unknown>);
+      }
+    }
+    if (params.action === "findMany") {
+      if (Array.isArray(result)) {
+        for (const row of result) {
+          decryptKycData(row as Record<string, unknown>);
+        }
+      }
+    }
+  }
+
+  return result;
 });
 
 // Connection pool exhaustion retry middleware: retry with exponential backoff

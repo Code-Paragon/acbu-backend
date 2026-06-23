@@ -26,6 +26,7 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node --transpile-only prisma/seed.ts",
     "backfill:org-limits": "ts-node --transpile-only prisma/backfillOrgTransactionContext.ts",
+    "backfill:kyc-encryption": "ts-node --transpile-only scripts/backfillKycEncryption.ts",
     "stellar:create-wallet": "ts-node --transpile-only scripts/create-stellar-wallet.ts",
     "compute:basket-weights": "ts-node --transpile-only scripts/compute-basket-weights.ts",
     "postinstall": "prisma generate && tsc -p tsconfig.build.json"

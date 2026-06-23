@@ -66,6 +66,24 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL)
   throw new Error("Missing required environment variable: PRISMA_ACCELERATE_URL");
 }
 
+// #382: Fintech partner keys must never be absent in production — an empty
+// Authorization header would be silently accepted by axios and only fail at
+// the first live API call, making the error hard to trace.  Fail at boot
+// instead so a misconfigured deployment is caught before it reaches traffic.
+if (parsed.data.NODE_ENV === "production") {
+  const missingFintechKeys: string[] = [];
+  if (!process.env.FLUTTERWAVE_SECRET_KEY) missingFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
+  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET) missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
+  if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
+  if (missingFintechKeys.length > 0) {
+    throw new Error(
+      `Missing required fintech API keys in production: ${missingFintechKeys.join(", ")}. ` +
+        "Inject these via environment variables — never commit them to source control. " +
+        "Rotate any key that may have been exposed before redeploying.",
+    );
+  }
+}
+
 const env = parsed.data;
 
 export const config = {

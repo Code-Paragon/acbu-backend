@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Response, NextFunction } from "express";
 import {
   getPrivilegedKeys,
   postAdminMfaChallenge,
@@ -13,6 +14,7 @@ import {
   postVerify2fa,
 } from "../controllers/authController";
 import { validateApiKey } from "../middleware/auth";
+import type { AuthRequest } from "../middleware/auth";
 import {
   authRateLimiter,
   apiKeyRateLimiter,
@@ -214,10 +216,56 @@ import {
 
 const router: ReturnType<typeof Router> = Router();
 
+function normalizeRateLimitIdentifier(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+
+  if (trimmed.includes("@") && trimmed.includes(".")) {
+    return trimmed.toLowerCase();
+  }
+
+  if (trimmed.startsWith("+") && /^\+[0-9]{10,15}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return trimmed.toLowerCase().replace(/\s/g, "");
+}
+
+function normalizeAuthRateLimitBody(
+  req: AuthRequest,
+  _res: Response,
+  next: NextFunction,
+): void {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  if (typeof body.identifier === "string") {
+    body.identifier = normalizeRateLimitIdentifier(body.identifier);
+  }
+
+  if (typeof body.email === "string") {
+    body.email = normalizeRateLimitIdentifier(body.email);
+  }
+
+  next();
+}
+
 router.post("/signup", authRateLimiter, postSignup);
 // #269: twoFaRateLimiter adds per-user/IP keyed limiting on top of the IP-only authRateLimiter
-router.post("/signin", authRateLimiter, twoFaRateLimiter, postSignin);
-router.post("/signin/verify-2fa", authRateLimiter, twoFaRateLimiter, postVerify2fa);
+// #391: normalize identifier/email before the per-user limiter so case variants share one budget
+router.post(
+  "/signin",
+  authRateLimiter,
+  normalizeAuthRateLimitBody,
+  twoFaRateLimiter,
+  postSignin,
+);
+router.post(
+  "/signin/verify-2fa",
+  authRateLimiter,
+  normalizeAuthRateLimitBody,
+  twoFaRateLimiter,
+  postVerify2fa,
+);
 
 // Signout requires API key
 router.post("/signout", validateApiKey, apiKeyRateLimiter, postSignout);

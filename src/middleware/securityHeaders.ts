@@ -4,6 +4,7 @@ import helmet from "helmet";
  * Central security headers middleware for the API.
  */
 export const securityHeadersMiddleware = helmet({
+  crossOriginEmbedderPolicy: true,
   hsts: {
     maxAge: 31536000,
     includeSubDomains: true,

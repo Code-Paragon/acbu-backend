@@ -1,6 +1,7 @@
 import { Response, NextFunction } from "express";
+import type { Prisma } from "@prisma/client";
 import { AuthRequest } from "../middleware/auth";
-import { Prisma, prisma } from "../config/database";
+import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";
 import { logger } from "../config/logger";
 import crypto from "crypto";

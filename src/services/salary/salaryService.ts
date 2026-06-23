@@ -1,6 +1,6 @@
 import { prisma } from "../../config/database";
 import { Decimal } from "@prisma/client/runtime/library";
-import { SalaryItem } from "@prisma/client";
+import { Prisma, SalaryItem } from "@prisma/client";
 import { createTransfer } from "../transfer/transferService";
 import { logger, logFinancialEvent } from "../../config/logger";
 import { CreateSalaryBatchParams, CreateSalaryBatchResult } from "./types";
@@ -154,7 +154,10 @@ export async function processSalaryBatch(batchId: string): Promise<void> {
       }),
     );
 
-    for (const r of results) {
+    // For rejected transfers, the item status write inside the map never ran,
+    // so collect those corrective writes and commit them atomically below (#394).
+    const failedItemWrites: Prisma.PrismaPromise<unknown>[] = [];
+    results.forEach((r, idx) => {
       if (r.status === "fulfilled" && r.value === "completed") {
         successCount++;
       } else {
@@ -162,21 +165,25 @@ export async function processSalaryBatch(batchId: string): Promise<void> {
         failCount++;
         if (r.status === "rejected") {
           logger.error("Salary item transfer failed", { batchId, error: r.reason });
-          // Mark the corresponding item failed; find by position in chunk
-          const idx = results.indexOf(r);
+          // Index aligns: results[idx] corresponds to chunk[idx].
           const item = chunk[idx];
           if (item) {
-            await prisma.salaryItem.update({
-              where: { id: item.id },
-              data: {
-                status: "failed",
-                errorMessage:
-                  r.reason instanceof Error ? r.reason.message : "Unknown error",
-              },
-            });
+            failedItemWrites.push(
+              prisma.salaryItem.update({
+                where: { id: item.id },
+                data: {
+                  status: "failed",
+                  errorMessage: r.reason instanceof Error ? r.reason.message : "Unknown error",
+                },
+              }),
+            );
           }
         }
       }
+    });
+
+    if (failedItemWrites.length > 0) {
+      await prisma.$transaction(failedItemWrites);
     }
   }
 

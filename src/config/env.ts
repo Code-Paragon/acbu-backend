@@ -9,6 +9,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(5000),
   API_VERSION: z.string().default("v1"),
   DATABASE_URL: z.string().min(1),
+  DATABASE_URL_REPLICA: z.string().optional(),
   MONGODB_URI: z.string().min(1),
   RABBITMQ_URL: z.string().min(1),
   JWT_SECRET: z.string().min(1),
@@ -65,6 +66,24 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL)
   throw new Error("Missing required environment variable: PRISMA_ACCELERATE_URL");
 }
 
+// #382: Fintech partner keys must never be absent in production — an empty
+// Authorization header would be silently accepted by axios and only fail at
+// the first live API call, making the error hard to trace.  Fail at boot
+// instead so a misconfigured deployment is caught before it reaches traffic.
+if (parsed.data.NODE_ENV === "production") {
+  const missingFintechKeys: string[] = [];
+  if (!process.env.FLUTTERWAVE_SECRET_KEY) missingFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
+  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET) missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
+  if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
+  if (missingFintechKeys.length > 0) {
+    throw new Error(
+      `Missing required fintech API keys in production: ${missingFintechKeys.join(", ")}. ` +
+        "Inject these via environment variables — never commit them to source control. " +
+        "Rotate any key that may have been exposed before redeploying.",
+    );
+  }
+}
+
 const env = parsed.data;
 
 export const config = {
@@ -72,6 +91,7 @@ export const config = {
   port: env.PORT,
   apiVersion: env.API_VERSION,
   databaseUrl: env.DATABASE_URL,
+  databaseUrlReplica: env.DATABASE_URL_REPLICA,
   prismaAccelerateUrl: env.PRISMA_ACCELERATE_URL,
   mongodbUri: env.MONGODB_URI,
   rabbitmqUrl: env.RABBITMQ_URL,
@@ -136,10 +156,6 @@ export const config = {
     uploadUrlTtlSeconds: parseInt(process.env.S3_UPLOAD_URL_TTL_SECONDS || "900", 10),
     downloadUrlTtlSeconds: parseInt(process.env.S3_DOWNLOAD_URL_TTL_SECONDS || "300", 10),
     scanWebhookSecret: process.env.S3_SCAN_WEBHOOK_SECRET || "",
-  },
-  bulkTransfer: {
-    chunkSize: parseInt(process.env.BULK_TRANSFER_CHUNK_SIZE || "100", 10),
-    maxFileSizeBytes: parseInt(process.env.BULK_TRANSFER_MAX_FILE_SIZE_BYTES || "10485760", 10),
   },
   fintech: {
     currencyProviders: ((): Record<string, string> => {
@@ -302,12 +318,6 @@ export const config = {
     secret: process.env.WEBHOOK_SECRET || "",
   },
 
-  // Enterprise / bulk transfer settings (stubbed for build)
-  bulkTransfer: {
-    chunkSize: parseInt(process.env.BULK_TRANSFER_CHUNK_SIZE || "1000", 10),
-    maxFileSizeBytes: parseInt(process.env.BULK_TRANSFER_MAX_FILE_SIZE_BYTES || "104857600", 10),
-  },
-
   // Limits
   limits: {
     retail: {
@@ -372,6 +382,9 @@ export const config = {
     failOpenMaxRetries: env.OPENAI_FAIL_OPEN_MAX_RETRIES,
     failOpenRetryBaseMs: env.OPENAI_FAIL_OPEN_RETRY_BASE_MS,
   },
+
+  // PII encryption key for KYC and sensitive field encryption
+  piiEncryptionKey: env.PII_ENCRYPTION_KEY,
 
   // Startup database connection retry (#402)
   database: {

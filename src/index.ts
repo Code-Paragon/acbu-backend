@@ -2,49 +2,77 @@ import { initTracing } from "./config/tracing";
 initTracing();
 
 import express, { type NextFunction, type Request, type Response } from "express";
+<<<<<<< fix/trust-proxy-config
 import helmet from "helmet";
+=======
+>>>>>>> dev
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
 import { logger } from "./config/logger";
+import { execSync } from "child_process";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
+import { securityHeadersMiddleware } from "./middleware/securityHeaders";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
+import { ErrorCodes } from "./types/errorCodes";
 import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 
 const app: express.Express = express();
+
+// Parse trust proxy hop count safely from environment variables (Default to 0 for local development)
+const trustProxyValue = process.env.TRUST_PROXY
+  ? (isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY))
+  : 0;
+
+app.set("trust proxy", trustProxyValue);
+
 const MAX_REQUEST_BODY_SIZE = "1mb";
+const SUPPORTED_REQUEST_ENCODINGS = new Set(["identity", "gzip"]);
+
+function normalizeContentEncoding(req: Request): string {
+  const header = req.headers["content-encoding"];
+  const value = Array.isArray(header) ? header[0] : header;
+  return (value || "identity").trim().toLowerCase() || "identity";
+}
+
+function validateRequestContentEncoding(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void {
+  const encoding = normalizeContentEncoding(req);
+
+  if (!SUPPORTED_REQUEST_ENCODINGS.has(encoding)) {
+    return next(
+      new AppError(
+        "Unsupported Content-Encoding. Use identity or gzip.",
+        415,
+        "UNSUPPORTED_CONTENT_ENCODING",
+      ),
+    );
+  }
+
+  next();
+}
 
 // Security middleware
-app.use(
-  helmet({
-    hsts: {
-      maxAge: 31536000,
-      includeSubDomains: true,
-    },
-    contentSecurityPolicy: {
-      directives: {
-        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-        "img-src": ["'self'", "data:", "https://validator.swagger.io"],
-        "script-src": ["'self'"],
-        "style-src": ["'self'", "https:"],
-      },
-    },
-  }),
-);
+app.use(securityHeadersMiddleware);
 app.use(corsMiddleware);
 
 // Compress all JSON/text responses to reduce bandwidth on large payloads
 app.use(compression());
 
-app.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
+// Validate and explicitly enable request body inflation for gzip-compressed clients (#409).
+app.use(validateRequestContentEncoding);
+app.use(express.urlencoded({ extended: true, inflate: true, limit: MAX_REQUEST_BODY_SIZE }));
 
 // ── Webhook Content-Type validation ────────────────────────────────────────────
 // Must check Content-Type BEFORE raw body parser, since non-JSON bodies would
@@ -60,21 +88,20 @@ function validateWebhookContentType(req: Request, _res: Response, next: NextFunc
 app.use(
   `/${config.apiVersion}/webhooks`,
   validateWebhookContentType,
-  express.raw({ type: "application/json" }),
+  express.raw({ inflate: true, limit: MAX_REQUEST_BODY_SIZE, type: "application/json" }),
   (req: express.Request, res: express.Response, next) => {
     const raw = req.body as Buffer;
     (req as unknown as { rawBody: Buffer }).rawBody = raw;
     try {
       (req as unknown as { body: unknown }).body = JSON.parse(raw.toString());
     } catch {
-      res.status(400).json({ error: "Invalid JSON payload" });
-      return;
+      throw new AppError("Invalid JSON payload", 400, ErrorCodes.INVALID_JSON);
     }
     next();
   },
   webhookRoutes,
 );
-app.use(express.json({ limit: MAX_REQUEST_BODY_SIZE }));
+app.use(express.json({ inflate: true, limit: MAX_REQUEST_BODY_SIZE }));
 
 app.use(
   (
@@ -88,6 +115,15 @@ app.use(
         error: {
           code: "PAYLOAD_TOO_LARGE",
           message: "Request body exceeds maximum allowed size",
+        },
+      });
+      return;
+    }
+    if (err?.type === "encoding.unsupported") {
+      res.status(415).json({
+        error: {
+          code: "UNSUPPORTED_CONTENT_ENCODING",
+          message: "Unsupported request body encoding",
         },
       });
       return;

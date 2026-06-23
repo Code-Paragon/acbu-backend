@@ -1,6 +1,5 @@
 import { encryptJson, decryptJson, getPiiKey } from "./piiEncryption";
 import { config } from "../config/env";
-import { logger } from "../config/logger";
 
 function getKey(): Buffer | null {
   const hex = config.piiEncryptionKey;
@@ -16,8 +15,9 @@ export function encryptKycPayload(payload: unknown): string | null {
   if (payload == null) return null;
   const key = getKey();
   if (!key) {
-    logger.warn("PII_ENCRYPTION_KEY not configured — skipping KYC payload encryption");
-    return JSON.stringify(payload);
+    throw new Error(
+      "PII_ENCRYPTION_KEY not configured — refusing to store plaintext KYC payload",
+    );
   }
   return encryptJson(payload, key);
 }
@@ -33,8 +33,9 @@ export function decryptKycPayload(encrypted: string | null): unknown {
   }
   const key = getKey();
   if (!key) {
-    logger.warn("PII_ENCRYPTION_KEY not configured — cannot decrypt KYC payload");
-    return null;
+    throw new Error(
+      "PII_ENCRYPTION_KEY not configured — cannot decrypt KYC payload",
+    );
   }
   return decryptJson(encrypted, key);
 }

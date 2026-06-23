@@ -110,28 +110,39 @@ function decryptKycData(data: Record<string, unknown>): void {
 basePrisma.$use(async (params, next) => {
   if (params.model === "KycApplication") {
     // Encrypt before writes
-    if (["create", "update", "updateMany"].includes(params.action)) {
+    if (["create", "update", "updateMany", "upsert", "createMany"].includes(params.action)) {
       const args = params.args as Record<string, unknown> | undefined;
-      if (args?.data && typeof args.data === "object") {
-        encryptKycData(args.data as Record<string, unknown>);
-      }
-    }
-    if (params.action === "upsert") {
-      const args = params.args as Record<string, unknown> | undefined;
-      if (args?.create && typeof args.create === "object") {
-        encryptKycData(args.create as Record<string, unknown>);
-      }
-      if (args?.update && typeof args.update === "object") {
-        encryptKycData(args.update as Record<string, unknown>);
+      if (params.action === "upsert") {
+        if (args?.create && typeof args.create === "object") {
+          encryptKycData(args.create as Record<string, unknown>);
+        }
+        if (args?.update && typeof args.update === "object") {
+          encryptKycData(args.update as Record<string, unknown>);
+        }
+      } else if (params.action === "createMany") {
+        const data = args?.data;
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            encryptKycData(item as Record<string, unknown>);
+          }
+        }
+      } else {
+        if (args?.data && typeof args.data === "object") {
+          encryptKycData(args.data as Record<string, unknown>);
+        }
       }
     }
   }
 
   const result = await next(params);
 
-  // Decrypt after reads
+  // Decrypt after reads AND mutation returns (create/update/upsert return the full row)
   if (params.model === "KycApplication") {
-    if (["findUnique", "findFirst", "findUniqueOrThrow", "findFirstOrThrow"].includes(params.action)) {
+    if (
+      ["findUnique", "findFirst", "findUniqueOrThrow", "findFirstOrThrow", "create", "update", "upsert"].includes(
+        params.action,
+      )
+    ) {
       if (result && typeof result === "object") {
         decryptKycData(result as Record<string, unknown>);
       }

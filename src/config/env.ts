@@ -38,6 +38,7 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
     .default("info"),
+  BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
   CORS_ORIGIN: z.string().optional(),
 
   // B-063: Fail-open controls for OpenAI degradation scenarios.
@@ -149,6 +150,9 @@ export const config = {
   // Logging
   logLevel: env.LOG_LEVEL,
   logFile: process.env.LOG_FILE || "logs/app.log",
+
+  // Business calendar timezone for salary runs and withdrawal windows (#408)
+  businessTimeZone: env.BUSINESS_TIMEZONE,
 
   // Fintech APIs
   flutterwave: {
@@ -360,12 +364,6 @@ export const config = {
   webhook: {
     url: process.env.WEBHOOK_URL || "",
     secret: process.env.WEBHOOK_SECRET || "",
-  },
-
-  // Enterprise / bulk transfer settings (stubbed for build)
-  bulkTransfer: {
-    chunkSize: parseInt(process.env.BULK_TRANSFER_CHUNK_SIZE || "1000", 10),
-    maxFileSizeBytes: parseInt(process.env.BULK_TRANSFER_MAX_FILE_SIZE_BYTES || "104857600", 10),
   },
 
   // Limits

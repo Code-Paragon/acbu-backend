@@ -4,6 +4,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: acbu-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-acbu}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-acbu_password}
@@ -21,6 +22,7 @@ services:
   mongodb:
     image: mongo:7
     container_name: acbu-mongodb
+    restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-acbu}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-acbu_password}
@@ -38,6 +40,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: acbu-rabbitmq
+    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-acbu}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-acbu_password}

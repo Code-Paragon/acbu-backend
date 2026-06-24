@@ -38,6 +38,18 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
     .default("info"),
+  LOG_LEVEL_CONSOLE: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
+    .optional(),
+  LOG_LEVEL_FILE: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
+    .optional(),
   CORS_ORIGIN: z.string().optional(),
 
   // B-063: Fail-open controls for OpenAI degradation scenarios.
@@ -148,6 +160,12 @@ export const config = {
 
   // Logging
   logLevel: env.LOG_LEVEL,
+  // Per-transport levels keep debug noise out of production aggregators (#398).
+  logConsoleLevel:
+    env.LOG_LEVEL_CONSOLE ??
+    (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+  logFileLevel:
+    env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFile: process.env.LOG_FILE || "logs/app.log",
 
   // Fintech APIs

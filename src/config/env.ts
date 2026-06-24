@@ -53,6 +53,14 @@ const envSchema = z.object({
   DB_CONNECT_MAX_RETRIES: z.coerce.number().int().min(1).default(8),
   DB_CONNECT_BASE_BACKOFF_MS: z.coerce.number().int().min(1).default(250),
   DB_CONNECT_MAX_BACKOFF_MS: z.coerce.number().int().min(1).default(10000),
+
+  // #436: Memory leak detection thresholds.
+  // MEMORY_LEAK_THRESHOLD_PCT — warn when heapUsed crosses this % of heap_size_limit (default 85).
+  // MEMORY_CHECK_INTERVAL_MS  — how often to sample heap usage (default 30 000 ms).
+  // HEAP_DUMP_DIR             — directory for .heapsnapshot files written on critical heap pressure.
+  MEMORY_LEAK_THRESHOLD_PCT: z.coerce.number().int().min(50).max(99).default(85),
+  MEMORY_CHECK_INTERVAL_MS: z.coerce.number().int().min(1000).default(30000),
+  HEAP_DUMP_DIR: z.string().default("./heapdumps"),
 });
 
 const parsed = envSchema.safeParse(process.env);

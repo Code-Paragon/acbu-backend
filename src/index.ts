@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { initTracing } from "./config/tracing";
 initTracing();
 
@@ -10,12 +12,11 @@ import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { corsMiddleware } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
-import { errorHandler } from "./middleware/errorHandler";
+import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
-import { AppError } from "./middleware/errorHandler";
 import { ErrorCodes } from "./types/errorCodes";
 
 const app: express.Express = express();

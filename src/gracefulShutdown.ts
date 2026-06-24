@@ -62,4 +62,22 @@ const handleTermination = async (): Promise<void> => {
 export const registerGracefulShutdown = (): void => {
   process.on("SIGTERM", handleTermination);
   process.on("SIGINT", handleTermination);
+
+  // An uncaught exception leaves the process in an undefined state.
+  // Log it and exit immediately so the process manager (Docker/K8s) can restart cleanly.
+  process.on("uncaughtException", (error: Error) => {
+    logger.error("uncaughtException — exiting to prevent undefined state", {
+      message: error.message,
+      stack: error.stack,
+    });
+    process.exit(1);
+  });
+
+  // Unhandled promise rejections are equally unsafe to continue from.
+  process.on("unhandledRejection", (reason: unknown) => {
+    logger.error("unhandledRejection — exiting to prevent undefined state", {
+      reason: reason instanceof Error ? reason.stack : String(reason),
+    });
+    process.exit(1);
+  });
 };

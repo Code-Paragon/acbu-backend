@@ -11,7 +11,7 @@ import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
-import { requestLogger } from "./middleware/logger";
+import { requestLogger } from "./middleware/requestLogger";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";

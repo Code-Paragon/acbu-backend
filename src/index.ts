@@ -2,6 +2,7 @@ import { initTracing } from "./config/tracing";
 initTracing();
 
 import express, { type NextFunction, type Request, type Response } from "express";
+import helmet from "helmet";
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";

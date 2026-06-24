@@ -56,6 +56,7 @@ export class StellarClient {
     if (secretKey) {
       try {
         this.keypair = Keypair.fromSecret(secretKey);
+        this.treasuryAccountId = this.keypair.publicKey();
         logger.info("Stellar keypair initialized", {
           publicKey: this.keypair.publicKey(),
           network,
@@ -151,6 +152,15 @@ export class StellarClient {
     },
   ) {
     try {
+      // Validate operations for treasury account security
+      if (this.treasuryAccountId) {
+        validateOperationsForTreasuryAccount(
+          operations,
+          sourceAccountId,
+          this.treasuryAccountId,
+        );
+      }
+
       const sourceAccount = await this.getAccount(sourceAccountId);
       let fee = options?.fee;
       if (!fee) {

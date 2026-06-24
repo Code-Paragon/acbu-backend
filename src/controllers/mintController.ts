@@ -31,6 +31,7 @@ import {
   contractNumberToDecimal,
   calculateFee,
 } from "../utils/decimalUtils";
+import { convertLocalToUsd } from "../services/rates";
 
 const MINT_FEE_BPS = 30; // 0.3%
 
@@ -291,7 +292,7 @@ export async function depositFromBasketCurrency(
     
     await checkDepositLimits(
       audience,
-      amountUsdPlaceholder,
+      amountUsd,
       userId,
       req.apiKey?.organizationId ?? null,
     );

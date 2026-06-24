@@ -5,11 +5,6 @@ import {
   deleteMe,
   getReceive,
   getReceiveQrcode,
-  getMeBalance,
-  postWalletConfirm,
-  postWalletActivate,
-  putWalletAddress,
-  deleteWallet,
   postContacts,
   getContacts,
   deleteContact,
@@ -17,6 +12,14 @@ import {
   getGuardians,
   deleteGuardian,
 } from "../controllers/userController";
+import {
+  getWallet,
+  getMeBalance,
+  postWalletConfirm,
+  postWalletActivate,
+  putWalletAddress,
+  deleteWallet,
+} from "../controllers/walletController";
 import { validateApiKey } from "../middleware/auth";
 import { apiKeyRateLimiter } from "../middleware/rateLimiter";
 
@@ -131,6 +134,21 @@ router.get("/me/receive/qrcode", getReceiveQrcode);
  *         description: Balances retrieved successfully
  */
 router.get("/me/balance", getMeBalance);
+
+/**
+ * @swagger
+ * /v1/users/me/wallet:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get wallet state with ETag
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallet state retrieved successfully
+ */
+router.get("/me/wallet", getWallet);
 
 /**
  * @swagger

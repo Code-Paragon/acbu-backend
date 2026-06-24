@@ -6,7 +6,7 @@ dotenv.config();
 
 const envSchema = z.object({
   NODE_ENV: z.string().default("development"),
-  PORT: z.coerce.number().default(5000),
+  PORT: z.coerce.number().int().positive().max(65535).default(5000),
   API_VERSION: z.string().default("v1"),
   DATABASE_URL: z.string().min(1),
   DATABASE_URL_REPLICA: z.string().optional(),
@@ -16,23 +16,23 @@ const envSchema = z.object({
   CHALLENGE_TOKEN_SECRET: z.string().optional(),
   PRISMA_ACCELERATE_URL: z.string().optional(),
   JWT_EXPIRES_IN: z.string().default("7d"),
-  JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().default(30),
+  JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().int().nonnegative().default(30),
   API_KEY_SALT: z.string().default(""),
   ADMIN_API_KEY: z.string().optional(),
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
-  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
-  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
-  AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(10),
-  MAX_SIGNIN_ATTEMPTS: z.coerce.number().default(5),
-  SIGNIN_LOCKOUT_DURATION_MS: z.coerce.number().default(15 * 60 * 1000),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
+  MAX_SIGNIN_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  SIGNIN_LOCKOUT_DURATION_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   PII_ENCRYPTION_KEY: z
     .string()
     .length(64, "PII_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)")
     .regex(/^[0-9a-fA-F]+$/, "PII_ENCRYPTION_KEY must be a hex string")
     .optional(),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_ORG_MONTHLY_BUDGET_USD: z.coerce.number().default(50),
-  OPENAI_MAX_TOKENS_PER_REQUEST: z.coerce.number().default(2000),
+  OPENAI_ORG_MONTHLY_BUDGET_USD: z.coerce.number().nonnegative().default(50),
+  OPENAI_MAX_TOKENS_PER_REQUEST: z.coerce.number().int().positive().default(2000),
   LOG_LEVEL: z
     .string()
     .trim()
@@ -43,9 +43,9 @@ const envSchema = z.object({
 
   // B-063: Fail-open controls for OpenAI degradation scenarios.
   OPENAI_FAIL_OPEN_ENABLED: z.string().default("true"),
-  OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().default(2000),
-  OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().default(2),
-  OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().default(500),
+  OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
+  OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().int().nonnegative().default(2),
+  OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().int().positive().default(500),
 
   // #402: Startup database connection retry with exponential backoff + jitter.
   // Jitter de-synchronises reconnecting instances to avoid a thundering herd on

@@ -5,10 +5,13 @@ import { stellarClient } from "./client";
 export interface ContractEvent {
   contractId: string;
   type: string;
+  version: number;
   data: Record<string, unknown>;
   ledger: number;
   timestamp: number;
 }
+
+export const CONTRACT_EVENT_PAYLOAD_VERSION = 1;
 
 export type EventHandler = (event: ContractEvent) => Promise<void>;
 
@@ -40,6 +43,26 @@ const RETRY_BASE_DELAY_MS = 500;
 const ACTIVE_POLL_DELAY_MS = 250;
 const IDLE_POLL_DELAY_MS = 1000;
 const IDLE_WITHOUT_SUBSCRIPTIONS_DELAY_MS = 2000;
+const RECONNECT_MAX_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY_MS = 2000;
+
+export interface EventListenerHealthStatus {
+  status: "up" | "down";
+  lastHealthyAt: number | null;
+  lastUnhealthyAt: number | null;
+  lastError: string | null;
+  reconnectAttemptsTotal: number;
+  lastReconnectAttemptAt: number | null;
+}
+
+export const eventListenerHealth: EventListenerHealthStatus = {
+  status: "down",
+  lastHealthyAt: null,
+  lastUnhealthyAt: null,
+  lastError: null,
+  reconnectAttemptsTotal: 0,
+  lastReconnectAttemptAt: null,
+};
 
 export class EventListener {
   private server: ReturnType<typeof stellarClient.getServer>;
@@ -47,7 +70,9 @@ export class EventListener {
   private registeredContractIds: Set<string> = new Set();
   private contractCursors: Map<string, string | null> = new Map();
   private isListening = false;
+  private isReconnecting = false;
   private defaultCursor: string | null = null;
+  private healthStatus = eventListenerHealth;
 
   constructor() {
     this.server = stellarClient.getServer();
@@ -153,6 +178,81 @@ export class EventListener {
     }
   }
 
+  getHealthStatus(): EventListenerHealthStatus {
+    return { ...this.healthStatus };
+  }
+
+  private markHealthy(): void {
+    if (this.healthStatus.status !== "up") {
+      logger.info("Soroban event listener recovered", {
+        lastError: this.healthStatus.lastError,
+      });
+    }
+
+    this.healthStatus.status = "up";
+    this.healthStatus.lastHealthyAt = Date.now();
+    this.healthStatus.lastError = null;
+  }
+
+  private markUnhealthy(error: string): void {
+    if (this.healthStatus.status !== "down") {
+      logger.warn("Soroban event listener disconnected", { error });
+    }
+
+    this.healthStatus.status = "down";
+    this.healthStatus.lastUnhealthyAt = Date.now();
+    this.healthStatus.lastError = error;
+  }
+
+  private async reconnectServer(contractId?: string): Promise<void> {
+    if (this.isReconnecting) {
+      return;
+    }
+
+    this.isReconnecting = true;
+    try {
+      for (let attempt = 1; attempt <= RECONNECT_MAX_ATTEMPTS; attempt += 1) {
+        this.healthStatus.lastReconnectAttemptAt = Date.now();
+        this.healthStatus.reconnectAttemptsTotal += 1;
+
+        try {
+          this.server = stellarClient.getServer();
+
+          if (contractId) {
+            const cursor = this.contractCursors.get(contractId) ?? this.defaultCursor;
+            const builder = this.getEffectsApi()
+              .forContract(contractId)
+              .order("asc")
+              .limit(1);
+
+            if (cursor) {
+              builder.cursor(cursor);
+            }
+
+            await builder.call();
+          }
+
+          this.markHealthy();
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn("Soroban event listener reconnect attempt failed", {
+            contractId,
+            attempt,
+            error: message,
+          });
+          this.markUnhealthy(message);
+
+          if (attempt < RECONNECT_MAX_ATTEMPTS) {
+            await this.sleep(RECONNECT_BASE_DELAY_MS * attempt);
+          }
+        }
+      }
+    } finally {
+      this.isReconnecting = false;
+    }
+  }
+
   /**
    * Listen for specific contract events (MintEvent, BurnEvent, etc.).
    */
@@ -235,9 +335,10 @@ export class EventListener {
           processedAny ? ACTIVE_POLL_DELAY_MS : IDLE_POLL_DELAY_MS,
         );
       } catch (error) {
-        logger.error("Error listening for events", {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error("Error listening for events", { error: message });
+        this.markUnhealthy(message);
+        await this.reconnectServer();
         await this.sleep(IDLE_POLL_DELAY_MS);
       }
     }
@@ -270,6 +371,8 @@ export class EventListener {
         },
       });
 
+      this.markHealthy();
+
       for (const effect of effects.records) {
         await this.dispatchRawEffect(contractId, effect);
         this.updateCursor(contractId, effect);
@@ -277,11 +380,15 @@ export class EventListener {
 
       return effects.records.length > 0;
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
       logger.error("Failed to poll contract effects", {
         contractId,
         cursor: this.contractCursors.get(contractId) ?? this.defaultCursor,
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
+      this.markUnhealthy(message);
+      await this.reconnectServer(contractId);
       return false;
     }
   }
@@ -326,6 +433,7 @@ export class EventListener {
     return {
       contractId,
       type,
+      version: CONTRACT_EVENT_PAYLOAD_VERSION,
       data: effect,
       ledger: Number.isFinite(ledger) ? ledger : 0,
       timestamp,

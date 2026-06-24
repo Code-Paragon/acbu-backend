@@ -7,10 +7,57 @@
  * - Challenge tokens have aud: "2fa_challenge" and iss: "acbu/auth"
  * - API session tokens have aud: "api_session" and are signed with a different (optional) secret
  * - Verification enforces audience to prevent token confusion
+ * - jti (JWT ID) uniqueness is enforced via an in-process deny-list (#288)
+ *   so a stolen token replayed within its 5-minute window is rejected.
+ *   For multi-instance deployments swap the in-process Map for a shared Redis SET.
  */
 import jwt from "jsonwebtoken";
 import { config } from "../config/env";
 import { logger } from "../config/logger";
+
+// ---------------------------------------------------------------------------
+// JTI deny-list — fixes #288
+// ---------------------------------------------------------------------------
+
+interface DenyEntry {
+  expiresAt: number; // Unix ms
+}
+
+const jtiDenyList = new Map<string, DenyEntry>();
+
+/** Prune expired entries to prevent unbounded memory growth. */
+function pruneExpiredJtis(): void {
+  const now = Date.now();
+  for (const [jti, entry] of jtiDenyList.entries()) {
+    if (entry.expiresAt <= now) {
+      jtiDenyList.delete(jti);
+    }
+  }
+}
+
+// Prune every 5 minutes — matches the challenge token lifetime.
+const jtiPruneTimer = setInterval(pruneExpiredJtis, 5 * 60 * 1000);
+jtiPruneTimer.unref();
+
+/**
+ * Add a jti to the deny-list until its natural expiry.
+ * @param jti - The JWT ID to revoke.
+ * @param exp - Token expiry in Unix *seconds* (from JWT payload).
+ */
+export function revokeJti(jti: string, exp: number): void {
+  jtiDenyList.set(jti, { expiresAt: exp * 1000 });
+}
+
+/**
+ * Returns true if the jti has already been used (is in the deny-list).
+ */
+export function isJtiRevoked(jti: string): boolean {
+  pruneExpiredJtis();
+  return jtiDenyList.has(jti);
+}
+
+/** Exposed for testing only. */
+export { jtiDenyList };
 
 const CHALLENGE_EXPIRY = "5m";
 const CHALLENGE_AUDIENCE = "2fa_challenge";
@@ -61,7 +108,8 @@ export function signChallengeToken(userId: string): string {
 /**
  * Verify and decode a 2FA challenge token.
  * Enforces aud and iss claims to prevent token reuse.
- * Throws if invalid, expired, or used for wrong purpose.
+ * Enforces jti uniqueness — a token can only be used once (#288).
+ * Throws if invalid, expired, already used, or used for wrong purpose.
  */
 export function verifyChallengeToken(token: string): ChallengePayload {
   const secret = getChallengeSecret();
@@ -100,6 +148,20 @@ export function verifyChallengeToken(token: string): ChallengePayload {
         });
         throw new Error("Invalid token issued-at");
       }
+    }
+
+    // jti replay check — fixes #288
+    if (decoded.jti) {
+      if (isJtiRevoked(decoded.jti)) {
+        logger.warn("Challenge token jti already used (replay attempt)", {
+          jti: decoded.jti,
+          userId: decoded.userId,
+        });
+        throw new Error("Challenge token has already been used");
+      }
+      // Consume the token: add to deny-list until its natural expiry.
+      const exp = decoded.exp ?? Math.floor(Date.now() / 1000) + 300;
+      revokeJti(decoded.jti, exp);
     }
 
     return decoded;

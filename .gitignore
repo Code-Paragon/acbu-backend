@@ -10,6 +10,7 @@ build/
 
 # Environment variables
 .env
+.env.production
 .env.local
 .env.*.local
 
@@ -38,3 +39,8 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+.idea
+
+# Heap snapshots written by the memory leak detector (#436)
+heapdumps/
+*.heapsnapshot

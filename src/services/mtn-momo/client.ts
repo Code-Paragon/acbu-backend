@@ -5,6 +5,7 @@
 import axios, { AxiosInstance } from "axios";
 import { config } from "../../config/env";
 import { logger } from "../../config/logger";
+import { CircuitBreaker } from "../../utils/circuitBreaker"; // Import the class
 import type {
   FintechProvider,
   DisburseRecipient,
@@ -25,6 +26,7 @@ export class MTNMoMoClient implements FintechProvider {
   private subscriptionKey: string;
   private token: string | null = null;
   private tokenExpiry = 0;
+  private breaker: CircuitBreaker;
 
   constructor(options?: Partial<MTNMoMoConfig>) {
     const mtnConfig = (config as { mtnMomo?: MTNMoMoConfig }).mtnMomo;
@@ -35,14 +37,58 @@ export class MTNMoMoClient implements FintechProvider {
       (conf.targetEnvironment === "production"
         ? "https://momodeveloper.mtn.com"
         : "https://sandbox.momodeveloper.mtn.com");
+    
     this.client = axios.create({
       baseURL: baseUrl,
       headers: {
         "Content-Type": "application/json",
         "Ocp-Apim-Subscription-Key": this.subscriptionKey,
       },
-      timeout: 30000,
+      // REQUIREMENT 1: Drop the hard timeout from 30s to 5s so it fails fast
+      timeout: 5000,
     });
+
+    // REQUIREMENT 2: Create an isolated circuit breaker for MTN MoMo
+    this.breaker = new CircuitBreaker({
+      failureThreshold: 5,
+      cooldownMs: 30000,
+      successThreshold: 2,
+    });
+  }
+
+  /**
+   * Helper method to execute requests safely through the circuit breaker with a simple retry strategy
+   */
+  private async requestWrapper<T>(requestFn: () => Promise<T>, retries = 2): Promise<T> {
+    if (!this.breaker.canExecute()) {
+      throw new Error("MTN MoMo service is temporarily unavailable (Circuit Open)");
+    }
+
+    try {
+      let attempt = 0;
+      while (attempt <= retries) {
+        try {
+          const result = await requestFn();
+          this.breaker.recordSuccess();
+          return result;
+        } catch (error: any) {
+          attempt++;
+          const isNetworkError = !error.response;
+          const isServerError = error.response?.status >= 500;
+          
+          if (attempt > retries || (!isNetworkError && !isServerError)) {
+            throw error;
+          }
+          
+          // Exponential backoff delay
+          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        }
+      }
+      throw new Error("Request failed after maximum retries");
+    } catch (finalError) {
+      this.breaker.recordFailure();
+      throw finalError;
+    }
   }
 
   private async ensureToken(): Promise<string> {
@@ -56,16 +102,21 @@ export class MTNMoMoClient implements FintechProvider {
       throw new Error("MTN MoMo apiUserId and apiKey required for auth");
     }
     const auth = Buffer.from(`${apiUserId}:${apiKey}`).toString("base64");
-    const response = await this.client.post(
-      "/disbursement/token/",
-      {},
-      {
-        headers: {
-          Authorization: `Basic ${auth}`,
-          "Ocp-Apim-Subscription-Key": this.subscriptionKey,
+
+    // Wrap token generation request in the circuit breaker
+    const response = await this.requestWrapper(() =>
+      this.client.post(
+        "/disbursement/token/",
+        {},
+        {
+          headers: {
+            Authorization: `Basic ${auth}`,
+            "Ocp-Apim-Subscription-Key": this.subscriptionKey,
+          },
         },
-      },
+      )
     );
+
     const accessToken = response.data?.access_token ?? "";
     this.token = accessToken;
     this.tokenExpiry = Date.now() + (response.data?.expires_in ?? 3600) * 1000;
@@ -75,15 +126,20 @@ export class MTNMoMoClient implements FintechProvider {
   async getBalance(currency: string): Promise<number> {
     try {
       const token = await this.ensureToken();
-      const response = await this.client.get(
-        "/disbursement/v1_0/account/balance",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Ocp-Apim-Subscription-Key": this.subscriptionKey,
+      
+      // Wrap balance request in circuit breaker
+      const response = await this.requestWrapper(() =>
+        this.client.get(
+          "/disbursement/v1_0/account/balance",
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Ocp-Apim-Subscription-Key": this.subscriptionKey,
+            },
           },
-        },
+        )
       );
+
       const data = response.data;
       const bal = Number(data?.availableBalance ?? data?.balance ?? 0);
       return bal;
@@ -124,20 +180,25 @@ export class MTNMoMoClient implements FintechProvider {
         payerMessage: "ACBU withdrawal",
         payeeNote: "ACBU withdrawal",
       };
-      const response = await this.client.post(
-        "/disbursement/v1_0/transfer",
-        body,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Ocp-Apim-Subscription-Key": this.subscriptionKey,
-            "X-Reference-Id": referenceId,
-            "X-Target-Environment":
-              ((config as { mtnMomo?: MTNMoMoConfig }).mtnMomo
-                ?.targetEnvironment as string) ?? "sandbox",
+
+      // Wrap disbursements request in circuit breaker
+      const response = await this.requestWrapper(() =>
+        this.client.post(
+          "/disbursement/v1_0/transfer",
+          body,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Ocp-Apim-Subscription-Key": this.subscriptionKey,
+              "X-Reference-Id": referenceId,
+              "X-Target-Environment":
+                ((config as { mtnMomo?: MTNMoMoConfig }).mtnMomo
+                  ?.targetEnvironment as string) ?? "sandbox",
+            },
           },
-        },
+        )
       );
+
       const status =
         response.status === 202
           ? "pending"

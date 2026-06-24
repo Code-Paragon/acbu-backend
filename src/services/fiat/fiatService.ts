@@ -1,6 +1,7 @@
 import { prisma } from "../../config/database";
 import { BASKET_CURRENCIES, type BasketCurrency } from "../../config/basket";
 import { Decimal } from "@prisma/client/runtime/library";
+import { getLatestAcbuRate } from "../rates/acbuRateCache";
 import {
   acbuBurningService,
   acbuMintingService,
@@ -105,6 +106,7 @@ export async function getBankAccounts(
         localAmount: { not: null },
         rateSnapshot: { path: ["source"], equals: "admin_drip_demo_fiat" },
       },
+      take: 1_000, // #437: cap per-user faucet rows
       select: {
         localCurrency: true,
         localAmount: true,
@@ -424,12 +426,7 @@ export async function simulateOffRamp(
     throw new Error("User wallet address not set");
   }
 
-  const acbuRateRecord = await prisma.acbuRate.findFirst({
-    orderBy: { timestamp: "desc" },
-  });
-  if (!acbuRateRecord) {
-    throw new Error("ACBU rates not available");
-  }
+  const acbuRateRecord = await getLatestAcbuRate();
 
   const rateKey =
     `acbu${currency.charAt(0).toUpperCase() + currency.slice(1).toLowerCase()}` as keyof typeof acbuRateRecord;

@@ -6,7 +6,7 @@ node_modules/
 dist/
 build/
 
-#Logs
+# Logs
 logs/
 *.log
 npm-debug.log*
@@ -14,27 +14,32 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-#Environment variables & Secrets
+# Environment variables & Secrets
 .env
 .env.*
 !.env.example
 !.env.test
 
-#Git and IDE configurations
+# Git, CI/CD, and IDE configurations
 .git
 .gitignore
+.github/
 .idea/
 .vscode/
 
-#Testing and Coverage
+# Testing and Coverage
 coverage/
 .nyc_output/
 
-#OS generated files
+# OS generated files
 .DS_Store
 Thumbs.db
 
-#Misc project directories not needed in production container
-scratch/
+# Documentation
 docs/
+*.md
+
+# Misc project directories not needed in production container
+scratch/
 tests/
+acbu-frontend/

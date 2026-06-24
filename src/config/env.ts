@@ -380,12 +380,6 @@ export const config = {
     secret: process.env.WEBHOOK_SECRET || "",
   },
 
-  // Enterprise / bulk transfer settings (stubbed for build)
-  bulkTransfer: {
-    chunkSize: parseInt(process.env.BULK_TRANSFER_CHUNK_SIZE || "1000", 10),
-    maxFileSizeBytes: parseInt(process.env.BULK_TRANSFER_MAX_FILE_SIZE_BYTES || "104857600", 10),
-  },
-
   // Limits
   limits: {
     retail: {

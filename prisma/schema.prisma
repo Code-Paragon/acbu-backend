@@ -34,8 +34,8 @@ model Organization {
 
 model User {
   id                     String           @id @default(uuid()) @db.Uuid
-  stellarAddress         String?          @unique @db.VarChar(56)
-  kycStatus              String           @default("pending") @db.VarChar(20)
+  stellarAddress         String?          @unique @map("stellar_address") @db.VarChar(56)
+  kycStatus              String           @default("pending") @map("kyc_status") @db.VarChar(20)
   kycVerifiedAt          DateTime?        @map("kyc_verified_at") @db.Timestamp(6)
   countryCode            String?          @map("country_code") @db.VarChar(3)
   username               String?          @unique @db.VarChar(64)
@@ -374,7 +374,7 @@ model UserPasskey {
 model UserDevice {
   id                   String   @id @default(uuid()) @db.Uuid
   userId               String   @map("user_id") @db.Uuid
-  fingerprint          String   @db.VarChar(64)
+  fingerprint          String   @map("fingerprint") @db.VarChar(64)
   userAgent            String?  @map("user_agent") @db.VarChar(512)
   lastIp               String?  @map("last_ip") @db.VarChar(45)
   isTrusted            Boolean  @default(false) @map("is_trusted")
@@ -635,7 +635,7 @@ model RecoveryAttempt {
   userId     String   @map("user_id") @db.Uuid
   identifier String   @db.VarChar(255)
   ip         String?  @db.VarChar(45)
-  userAgent  String?  @db.VarChar(512)
+  userAgent  String?  @map("user_agent") @db.VarChar(512)
   success    Boolean  @default(false)
   reason     String?  @db.VarChar(255)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
@@ -683,4 +683,3 @@ model RefreshToken {
   @@index([expiresAt], map: "idx_refresh_tokens_expires_at")
   @@map("refresh_tokens")
 }
-

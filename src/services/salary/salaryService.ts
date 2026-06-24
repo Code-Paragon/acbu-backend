@@ -1,5 +1,6 @@
 import { prisma } from "../../config/database";
 import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma, SalaryItem } from "@prisma/client";
 import { createTransfer } from "../transfer/transferService";
 import { logger, logFinancialEvent } from "../../config/logger";
 import { CreateSalaryBatchParams, CreateSalaryBatchResult } from "./types";
@@ -100,7 +101,9 @@ export async function createSalaryBatch(
 }
 
 /**
- * Processes a salary batch by executing individual transfers.
+ * Processes a salary batch by executing individual transfers concurrently.
+ * Items already completed are skipped (resume support).
+ * Failed items are marked in DB; the batch status reflects partial/full completion.
  */
 export async function processSalaryBatch(batchId: string): Promise<void> {
   const batch = await prisma.salaryBatch.findUnique({
@@ -122,62 +125,70 @@ export async function processSalaryBatch(batchId: string): Promise<void> {
     itemCount: batch.items.length,
   });
 
-  let allSucceeded = true;
-  let anySucceeded = false;
+  const BATCH_CONCURRENCY = 10;
+  const pending: SalaryItem[] = (batch.items as SalaryItem[]).filter((item) => item.status !== "completed");
 
-  for (const item of batch.items) {
-    if (item.status === "completed") {
-      anySucceeded = true;
-      continue;
-    }
+  let successCount = (batch.items as SalaryItem[]).filter((i) => i.status === "completed").length;
+  let failCount = 0;
 
-    try {
-      // In a real scenario, we might need the organization's or user's signing key.
-      // For now, we'll use the transferService which might be configured with a system key
-      // or we might need to pass a specialized getSenderSigningKey.
-      // Since this is a salary disbursement, it's often from a corporate wallet.
+  // Process in concurrent chunks of BATCH_CONCURRENCY
+  for (let i = 0; i < pending.length; i += BATCH_CONCURRENCY) {
+    const chunk = pending.slice(i, i + BATCH_CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map(async (item) => {
+        const result = await createTransfer({
+          senderUserId: batch.userId,
+          to: item.recipientAddress,
+          amountAcbu: item.amount.toString(),
+        });
+        await prisma.salaryItem.update({
+          where: { id: item.id },
+          data: {
+            status: result.status,
+            transactionId: result.transactionId,
+            errorMessage:
+              result.status === "failed" ? "Transfer payment failed" : null,
+          },
+        });
+        return result.status;
+      }),
+    );
 
-      const result = await createTransfer({
-        senderUserId: batch.userId,
-        to: item.recipientAddress,
-        amountAcbu: item.amount.toString(),
-      });
-
-      await prisma.salaryItem.update({
-        where: { id: item.id },
-        data: {
-          status: result.status,
-          transactionId: result.transactionId,
-          errorMessage:
-            result.status === "failed" ? "Transfer payment failed" : null,
-        },
-      });
-
-      if (result.status === "completed") {
-        anySucceeded = true;
-      } else if (result.status === "failed") {
-        allSucceeded = false;
+    // For rejected transfers, the item status write inside the map never ran,
+    // so collect those corrective writes and commit them atomically below (#394).
+    const failedItemWrites: Prisma.PrismaPromise<unknown>[] = [];
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled" && r.value === "completed") {
+        successCount++;
+      } else {
+        // fulfilled-but-failed or rejected
+        failCount++;
+        if (r.status === "rejected") {
+          logger.error("Salary item transfer failed", { batchId, error: r.reason });
+          // Index aligns: results[idx] corresponds to chunk[idx].
+          const item = chunk[idx];
+          if (item) {
+            failedItemWrites.push(
+              prisma.salaryItem.update({
+                where: { id: item.id },
+                data: {
+                  status: "failed",
+                  errorMessage: r.reason instanceof Error ? r.reason.message : "Unknown error",
+                },
+              }),
+            );
+          }
+        }
       }
-      // If pending, we don't mark allSucceeded as false yet, but it's not completed either.
-      if (result.status !== "completed") {
-        allSucceeded = false;
-      }
-    } catch (err) {
-      allSucceeded = false;
-      logger.error("Salary item transfer failed", {
-        itemId: item.id,
-        error: err,
-      });
-      await prisma.salaryItem.update({
-        where: { id: item.id },
-        data: {
-          status: "failed",
-          errorMessage: err instanceof Error ? err.message : "Unknown error",
-        },
-      });
+    });
+
+    if (failedItemWrites.length > 0) {
+      await prisma.$transaction(failedItemWrites);
     }
   }
 
+  const allSucceeded = failCount === 0 && successCount === batch.items.length;
+  const anySucceeded = successCount > 0;
   const finalStatus = allSucceeded
     ? "completed"
     : anySucceeded
@@ -207,6 +218,8 @@ export async function processSalaryBatch(batchId: string): Promise<void> {
   logger.info("Salary batch processing finished", {
     batchId,
     status: finalStatus,
+    successCount,
+    failCount,
   });
 }
 

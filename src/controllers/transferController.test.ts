@@ -136,6 +136,32 @@ describe("transferController", () => {
       });
     });
 
+    it("passes the Idempotency-Key header into transfer creation", async () => {
+      (createTransfer as jest.Mock).mockResolvedValue({
+        transactionId: "tx-2",
+        status: "completed",
+      });
+      const res = makeRes();
+      await postTransfers(
+        {
+          body: { to: "@bob", amount_acbu: "10.5" },
+          apiKey: { userId: "u1" },
+          get: jest.fn().mockReturnValue("idem-transfer"),
+        } as unknown as AuthRequest,
+        res,
+        makeNext(),
+      );
+      expect(createTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          senderUserId: "u1",
+          to: "@bob",
+          amountAcbu: "10.5",
+          idempotencyKey: "idem-transfer",
+        }),
+        expect.any(Object),
+      );
+    });
+
     it("returns 404 when recipient is not found", async () => {
       (createTransfer as jest.Mock).mockRejectedValue(
         new Error("Recipient not found or not available"),

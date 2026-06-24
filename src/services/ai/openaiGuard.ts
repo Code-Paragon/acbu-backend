@@ -14,6 +14,10 @@ import { config } from "../../config/env";
 import { logger } from "../../config/logger";
 import { getMongoDB } from "../../config/mongodb";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
 // Patterns that are never allowed in prompts regardless of context.
 const DISALLOWED_PROMPT_PATTERNS: RegExp[] = [
   /ignore (all |previous |prior )?instructions/i,
@@ -188,11 +192,74 @@ export async function guardedChat(
 
   logger.debug("[openaiGuard] Sending request", { orgId, userId, model });
 
-  const response = await client.chat.completions.create({
-    model,
-    messages,
-    max_tokens: maxTokens,
-  });
+  // Wrapper that applies timeout, retries, and optionally fails-open.
+  const timeoutMs = config.openai.failOpenTimeoutMs ?? 2000;
+  const maxRetries = config.openai.failOpenMaxRetries ?? 2;
+  const retryBaseMs = config.openai.failOpenRetryBaseMs ?? 500;
+  const failOpen = !!config.openai.failOpenEnabled;
+
+  function isRetryableError(err: any): boolean {
+    if (!err) return false;
+    const status = err.status || err.statusCode || err.code;
+    // Retry on rate limits / 5xx / transient network errors
+    if (status === 429) return true;
+    if (typeof status === "number" && status >= 500 && status < 600) return true;
+    const msg = String(err.message || err.toString()).toLowerCase();
+    if (msg.includes("timeout") || msg.includes("network") || msg.includes("econnrefused")) return true;
+    return false;
+  }
+
+  async function callWithRetries(): Promise<any> {
+    let lastErr: any = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const apiPromise = client.chat.completions.create({
+          model,
+          messages,
+          max_tokens: maxTokens,
+        });
+
+        const timeoutPromise = new Promise((_, rej) =>
+          setTimeout(() => rej(new Error("OpenAI request timed out")), timeoutMs),
+        );
+
+        const res = await Promise.race([apiPromise, timeoutPromise]);
+        return res;
+      } catch (err) {
+        lastErr = err;
+        logger.warn("[openaiGuard] OpenAI request failed", { orgId, userId, model, attempt, err: String(err) });
+        if (attempt < maxRetries && isRetryableError(err)) {
+          const backoff = retryBaseMs * Math.pow(2, attempt);
+          const jitter = Math.floor(Math.random() * 100);
+          await sleep(backoff + jitter);
+          continue;
+        }
+        throw lastErr;
+      }
+    }
+    throw lastErr;
+  }
+
+  let response: any;
+  try {
+    response = await callWithRetries();
+  } catch (err) {
+    // If configured to fail-open, log and return a safe default allowing callers to continue.
+    if (failOpen && isRetryableError(err)) {
+      logger.warn("[openaiGuard] Failing open due to OpenAI degradation", { orgId, userId, err: String(err) });
+      return {
+        content: "",
+        usage: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          estimatedCostUsd: 0,
+        },
+      } as GuardedChatResult;
+    }
+    // rethrow non-retryable or fail-closed errors
+    throw err;
+  }
 
   const choice = response.choices[0];
   const content = choice?.message?.content ?? "";

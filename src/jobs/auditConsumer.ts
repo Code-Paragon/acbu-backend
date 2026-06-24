@@ -1,9 +1,10 @@
+import type { ConsumeMessage } from "amqplib";
 import { prisma } from "../config/database";
 import { logger } from "../config/logger";
-import { QUEUES, assertQueueWithDLQ } from "../config/rabbitmq";
-import { getRabbitMQChannel } from "../config/rabbitmq";
+import { QUEUES, assertQueueWithDLQ, getRabbitMQChannel } from "../config/rabbitmq";
+import { getQueueMaxRetries } from "./queueConfig";
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = getQueueMaxRetries(QUEUES.AUDIT_LOGS);
 const INITIAL_BACKOFF_MS = 1000;
 
 export async function startAuditConsumer() {
@@ -11,7 +12,8 @@ export async function startAuditConsumer() {
 
   await assertQueueWithDLQ(QUEUES.AUDIT_LOGS, { durable: true });
 
-  channel.consume(QUEUES.AUDIT_LOGS, async (msg) => {
+  channel.prefetch(1);
+  channel.consume(QUEUES.AUDIT_LOGS, async (msg: ConsumeMessage | null) => {
     if (!msg) return;
 
     const content = msg.content.toString();
@@ -65,7 +67,7 @@ export async function startAuditConsumer() {
         }
       }
     }
-  });
+  }, { noAck: false });
 
   logger.info("Audit consumer started");
 }

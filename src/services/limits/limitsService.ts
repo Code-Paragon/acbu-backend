@@ -43,19 +43,16 @@ export async function checkDepositLimits(
   organizationId: string | null,
 ): Promise<void> {
   const config = await getLimitConfig(audience);
-  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const startOfMonth = new Date(
-    new Date().getFullYear(),
-    new Date().getMonth(),
-    1,
-  );
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
   const whereActor = buildActorWhere(userId, organizationId);
   const mintedDaily = await prisma.transaction.aggregate({
     where: {
       type: "mint",
       status: { in: ["pending", "processing", "completed"] },
-      createdAt: { gte: since24h },
+      createdAt: { gte: startOfDay },
       ...whereActor,
     },
     _sum: { usdcAmount: true },
@@ -103,12 +100,9 @@ export async function checkWithdrawalLimits(
   organizationId: string | null,
 ): Promise<void> {
   const config = await getLimitConfig(audience);
-  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const startOfMonth = new Date(
-    new Date().getFullYear(),
-    new Date().getMonth(),
-    1,
-  );
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
   const whereActor = buildActorWhere(userId, organizationId);
   const burnedDaily = await prisma.transaction.aggregate({
@@ -116,7 +110,7 @@ export async function checkWithdrawalLimits(
       type: { in: ["burn", "bill_payment"] },
       localCurrency: currency,
       status: { in: ["pending", "processing", "completed"] },
-      createdAt: { gte: since24h },
+      createdAt: { gte: startOfDay },
       ...whereActor,
     },
     _sum: { acbuAmountBurned: true },

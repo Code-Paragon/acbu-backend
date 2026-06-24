@@ -148,6 +148,10 @@ export async function generateUploadUrl(
     Bucket: config.s3.bucket,
     Key: objectKey,
     ContentType: mimeType,
+    // PII documents must never be publicly accessible
+    ACL: "private",
+    // Enforce encryption at rest at the object level
+    ServerSideEncryption: "AES256",
     // Tag the object immediately as pending scan — the virus-scan hook reads this
     Tagging: "scan-status=pending&owner=" + encodeURIComponent(userId),
     Metadata: {

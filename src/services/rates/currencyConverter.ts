@@ -4,8 +4,8 @@
  * Uses high-precision Decimal math to avoid floating-point rounding errors.
  */
 
-import { prisma } from "../../config/database";
 import { Decimal } from "@prisma/client/runtime/library";
+import { getLatestAcbuRate } from "./acbuRateCache";
 import { AppError } from "../../middleware/errorHandler";
 
 /**
@@ -78,9 +78,7 @@ export async function convertLocalToUsd(
   }
 
   // Fetch the latest exchange rates
-  const latestRate = await prisma.acbuRate.findFirst({
-    orderBy: { timestamp: "desc" },
-  });
+  const latestRate = await getLatestAcbuRate().catch(() => null);
 
   if (!latestRate) {
     throw new AppError(
@@ -151,9 +149,7 @@ export async function convertLocalToUsdWithPrecision(
   }
 
   // Fetch the latest exchange rates
-  const latestRate = await prisma.acbuRate.findFirst({
-    orderBy: { timestamp: "desc" },
-  });
+  const latestRate = await getLatestAcbuRate().catch(() => null);
 
   if (!latestRate) {
     throw new AppError(

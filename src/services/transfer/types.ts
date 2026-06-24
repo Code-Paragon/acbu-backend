@@ -7,6 +7,7 @@ export interface CreateTransferParams {
   senderUserId: string;
   to: string;
   amountAcbu: string;
+  idempotencyKey?: string;
 }
 
 export interface CreateTransferOptions {

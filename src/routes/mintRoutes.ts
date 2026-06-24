@@ -6,12 +6,14 @@ import {
 import { validateApiKey } from "../middleware/auth";
 import { apiKeyRateLimiter } from "../middleware/rateLimiter";
 
-const router: IRouter = Router();
-router.use(validateApiKey);
-router.use(apiKeyRateLimiter);
-/**
- * @swagger
- * tags:
+export function createMintRoutes(): ReturnType<typeof Router> {
+  const router: IRouter = Router();
+  router.use(validateApiKey);
+  router.use(apiKeyRateLimiter);
+
+  /**
+   * @swagger
+   * tags:
  *   - name: Mint
  *     description: Asset minting and deposits
  */
@@ -78,12 +80,16 @@ router.post("/usdc", mintFromUsdc);
  *                 type: string
  *               wallet_address:
  *                 type: string
- *               idempotency_key:
+ *               fintech_tx_id:
  *                 type: string
- *                 description: Optional idempotency key for safe retry of deposit requests
+ *                 description: Optional external payment transaction ID used for idempotency and duplicate detection
  *     responses:
  *       202:
  *         description: Deposit request accepted
  */
 router.post("/deposit", depositFromBasketCurrency);
+  return router;
+}
+
+const router = createMintRoutes();
 export default router;

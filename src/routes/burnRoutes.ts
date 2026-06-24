@@ -3,12 +3,14 @@ import { burnAcbu } from "../controllers/burnController";
 import { validateApiKey } from "../middleware/auth";
 import { apiKeyRateLimiter } from "../middleware/rateLimiter";
 
-const router: IRouter = Router();
-router.use(validateApiKey);
-router.use(apiKeyRateLimiter);
-/**
- * @swagger
- * tags:
+export function createBurnRoutes(): ReturnType<typeof Router> {
+  const router: IRouter = Router();
+  router.use(validateApiKey);
+  router.use(apiKeyRateLimiter);
+
+  /**
+   * @swagger
+   * tags:
  *   - name: Burn
  *     description: Asset burning and redemptions
  */
@@ -59,4 +61,8 @@ router.use(apiKeyRateLimiter);
  *         description: Burn request accepted
  */
 router.post("/acbu", burnAcbu);
+  return router;
+}
+
+const router = createBurnRoutes();
 export default router;

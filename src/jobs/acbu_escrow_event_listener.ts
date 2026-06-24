@@ -6,7 +6,7 @@ import {
   ContractEvent,
 } from "../services/stellar/eventListener";
 import { contractAddresses } from "../config/contracts";
-import { connectRabbitMQ, QUEUES } from "../config/rabbitmq";
+import { connectRabbitMQ, QUEUES, assertQueueWithDLQ } from "../config/rabbitmq";
 import { logger } from "../config/logger";
 
 const ESCROW_EFFECT_TYPES = [
@@ -25,7 +25,7 @@ export async function startEscrowEventListener(): Promise<void> {
   const handler = async (event: ContractEvent): Promise<void> => {
     try {
       const ch = await connectRabbitMQ();
-      await ch.assertQueue(QUEUES.ACBU_ESCROW_EVENTS, { durable: true });
+      await assertQueueWithDLQ(QUEUES.ACBU_ESCROW_EVENTS);
       ch.sendToQueue(
         QUEUES.ACBU_ESCROW_EVENTS,
         Buffer.from(

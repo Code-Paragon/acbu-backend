@@ -1,0 +1,157 @@
+# Environment Variables
+
+This file documents the environment variables required by the ACBU backend and the defaults used by the runtime.
+
+## Required variables
+
+- `DATABASE_URL`
+  - Direct PostgreSQL connection string for Prisma migrations and local runtime fallback.
+  - Must not use `prisma://` or `prisma+postgres://`.
+- `MONGODB_URI`
+  - MongoDB connection string for the cache layer.
+- `RABBITMQ_URL`
+  - RabbitMQ connection string for queue-based features.
+- `JWT_SECRET`
+  - Secret used for JWT signing and verification.
+
+## Runtime database configuration
+
+- `PRISMA_ACCELERATE_URL`
+  - Optional for local development.
+  - When set, the app uses Prisma Accelerate for runtime queries.
+  - Must start with `prisma://` or `prisma+postgres://`.
+  - In production, this variable is required.
+
+## Optional and configurable variables
+
+### General application
+
+- `NODE_ENV` - defaults to `development`
+- `PORT` - defaults to `5000`
+- `API_VERSION` - defaults to `v1`
+- `CHALLENGE_TOKEN_SECRET` - optional; fallback to `JWT_SECRET`
+- `JWT_EXPIRES_IN` - defaults to `7d`
+- `JWT_CLOCK_TOLERANCE_SECONDS` - defaults to `30`
+- `API_KEY_SALT` - defaults to empty string
+- `ADMIN_API_KEY`
+- `LOG_LEVEL` - defaults to `info`
+- `LOG_FILE` - defaults to `logs/app.log`
+
+### Rate limiting
+
+- `RATE_LIMIT_WINDOW_MS` - defaults to `60000`
+- `RATE_LIMIT_MAX_REQUESTS` - defaults to `100`
+- `AUTH_RATE_LIMIT_WINDOW_MS` - defaults to `900000`
+- `AUTH_RATE_LIMIT_MAX_REQUESTS` - defaults to `10`
+- `RATE_LIMIT_FALLBACK_MAX_REQUESTS` - defaults to `20`
+- `RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD` - defaults to `5`
+- `RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS` - defaults to `60000`
+
+### Encryption and security
+
+- `PII_ENCRYPTION_KEY`
+  - Optional.
+  - Must be exactly 64 hex characters (32 bytes).
+- `CAPTCHA_SECRET`
+- `AUTH_BRUTE_MAX_ATTEMPTS` - defaults to `5`
+- `AUTH_BRUTE_LOCKOUT_MS` - defaults to `900000`
+
+### Fintech providers
+
+- `FLUTTERWAVE_PUBLIC_KEY`
+- `FLUTTERWAVE_SECRET_KEY`
+- `FLUTTERWAVE_ENCRYPTION_KEY`
+- `FLUTTERWAVE_WEBHOOK_SECRET`
+- `FLUTTERWAVE_BASE_URL`
+- `PAYSTACK_SECRET_KEY`
+- `PAYSTACK_BASE_URL`
+- `MTN_MOMO_SUBSCRIPTION_KEY`
+- `MTN_MOMO_API_USER_ID`
+- `MTN_MOMO_API_KEY`
+- `MTN_MOMO_BASE_URL`
+- `MTN_MOMO_TARGET_ENVIRONMENT`
+- `FINTECH_CURRENCY_PROVIDERS`
+
+### AWS / S3
+
+- `AWS_REGION` or `S3_REGION`
+- `S3_BUCKET`
+- `S3_ENDPOINT`
+- `AWS_ACCESS_KEY_ID` or `S3_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY` or `S3_SECRET_ACCESS_KEY`
+- `S3_UPLOAD_URL_TTL_SECONDS` - defaults to `900`
+- `S3_DOWNLOAD_URL_TTL_SECONDS` - defaults to `300`
+- `S3_SCAN_WEBHOOK_SECRET`
+
+### Stellar
+
+- `STELLAR_NETWORK` - defaults to `testnet`
+- `STELLAR_HORIZON_URL`
+- `STELLAR_SOROBAN_RPC_URL`
+- `STELLAR_SECRET_KEY`
+- `STELLAR_NATIVE_ASSET_CODE`
+- `WALLET_ACTIVATION_STRATEGY` - defaults to `create_account_native`
+- `TESTNET_CUSTODIAL_BOOTSTRAP`
+- `WALLET_ACTIVATION_AMOUNT` / `WALLET_ACTIVATION_NATIVE` / `WALLET_ACTIVATION_XLM` / `STELLAR_MIN_BALANCE`
+- `STELLAR_BASE_FEE_STROOPS` - defaults to `100`
+- `STELLAR_USE_DYNAMIC_FEES`
+- `STELLAR_SOROBAN_MIN_FEE_STROOPS` - defaults to `5000`
+- `STELLAR_SOROBAN_MAX_FEE_STROOPS` - defaults to `10000000`
+- `USDC_ISSUER_TESTNET`
+- `USDC_ISSUER_MAINNET`
+- `USDC_ASSET_CODE_TESTNET` - defaults to `USDC`
+- `USDC_ASSET_CODE_MAINNET` - defaults to `USDC`
+- `USDC_XLM_SLIPPAGE_BPS` - defaults to `50`
+
+### Oracle
+
+- `ORACLE_UPDATE_INTERVAL_HOURS` - defaults to `6`
+- `ORACLE_EMERGENCY_THRESHOLD` - defaults to `0.05`
+- `ORACLE_MAX_DEVIATION_PER_UPDATE` - defaults to `0.05`
+- `ORACLE_CIRCUIT_BREAKER_THRESHOLD` - defaults to `0.10`
+- `EXCHANGERATE_API_BASE_URL` - defaults to `https://v6.exchangerate-api.com/v6`
+- `EXCHANGERATE_API_KEY`
+- `CURRENCY_CENTRAL_BANK_URLS`
+
+### Reserve
+
+- `RESERVE_MIN_RATIO` - defaults to `1.02`
+- `RESERVE_TARGET_RATIO` - defaults to `1.05`
+- `RESERVE_ALERT_THRESHOLD` - defaults to `1.02`
+
+### Notifications
+
+- `NOTIFICATION_EMAIL_PROVIDER` - defaults to `log`
+- `NOTIFICATION_FROM_EMAIL` - defaults to `noreply@acbu.io`
+- `SENDGRID_API_KEY`
+- `AWS_SES_REGION`
+- `NOTIFICATION_SMS_PROVIDER` - defaults to `log`
+- `NOTIFICATION_ALERT_EMAIL`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_FROM_NUMBER`
+- `AFRICAS_TALKING_API_KEY`
+- `AFRICAS_TALKING_USERNAME`
+
+### Webhooks
+
+- `WEBHOOK_URL`
+- `WEBHOOK_SECRET`
+
+### OpenAI
+
+- `OPENAI_API_KEY`
+- `OPENAI_ORG_MONTHLY_BUDGET_USD` - defaults to `50`
+- `OPENAI_MAX_TOKENS_PER_REQUEST` - defaults to `2000`
+
+### CORS
+
+- `CORS_ORIGIN`
+  - Comma-separated list of allowed origins.
+
+## Notes
+
+- In production, `PRISMA_ACCELERATE_URL` is required.
+- `DATABASE_URL` should always be a direct PostgreSQL URL for migrations.
+- `PRISMA_ACCELERATE_URL` should be used for runtime database queries when set.
+- If you need the exact runtime schema, refer to `src/config/env.ts`.

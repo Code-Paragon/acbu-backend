@@ -2,7 +2,6 @@ import { initTracing } from "./config/tracing";
 initTracing();
 
 import express, { type NextFunction, type Request, type Response } from "express";
-import helmet from "helmet";
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
@@ -27,7 +26,9 @@ const app: express.Express = express();
 
 // Parse trust proxy hop count safely from environment variables (Default to 0 for local development)
 const trustProxyValue = process.env.TRUST_PROXY
-  ? (isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY))
+  ? isNaN(Number(process.env.TRUST_PROXY))
+    ? process.env.TRUST_PROXY
+    : Number(process.env.TRUST_PROXY)
   : 0;
 
 app.set("trust proxy", trustProxyValue);
@@ -41,11 +42,7 @@ function normalizeContentEncoding(req: Request): string {
   return (value || "identity").trim().toLowerCase() || "identity";
 }
 
-function validateRequestContentEncoding(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
+function validateRequestContentEncoding(req: Request, _res: Response, next: NextFunction): void {
   const encoding = normalizeContentEncoding(req);
 
   if (!SUPPORTED_REQUEST_ENCODINGS.has(encoding)) {

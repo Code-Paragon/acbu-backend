@@ -37,7 +37,7 @@ Thumbs.db
 
 # Documentation
 docs/
-*.md
+/*.md
 
 # Misc project directories not needed in production container
 scratch/

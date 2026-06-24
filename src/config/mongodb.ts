@@ -5,6 +5,9 @@ import { logger } from "./logger";
 let client: MongoClient | null = null;
 let db: Db | null = null;
 
+const MAX_RETRIES = 5;
+const BASE_DELAY_MS = 200;
+
 function sanitizeMongoUri(uri: string): string {
   return uri.replace(/\/\/[^:@]+:[^@]+@/, "//***:***@");
 }
@@ -25,13 +28,19 @@ export async function connectMongoDB(): Promise<Db> {
       client = null;
       if (attempt === MAX_RETRIES) break;
       const delay = BASE_DELAY_MS * 2 ** (attempt - 1);
-      logger.warn(`MongoDB connection attempt ${attempt} failed, retrying in ${delay}ms`, { error });
+      logger.warn(`MongoDB connection attempt ${attempt} failed, retrying in ${delay}ms`, {
+        uri: sanitizeMongoUri(config.mongodbUri),
+        error,
+      });
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
   if (!db) {
-    logger.error("Failed to connect to MongoDB after retries", { error: lastError });
+    logger.error("Failed to connect to MongoDB after retries", {
+      uri: sanitizeMongoUri(config.mongodbUri),
+      error: lastError,
+    });
     throw lastError;
   }
 
@@ -70,14 +79,7 @@ export async function connectMongoDB(): Promise<Db> {
     }
   });
 
-    return db;
-  } catch (error) {
-    logger.error("Failed to connect to MongoDB", {
-      uri: sanitizeMongoUri(config.mongodbUri),
-      error,
-    });
-    throw error;
-  }
+  return db;
 }
 
 export async function disconnectMongoDB(): Promise<void> {

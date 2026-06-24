@@ -45,6 +45,26 @@ const envSchema = z.object({
   OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().default(2000),
   OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().default(2),
   OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().default(500),
+
+  // #402: Startup database connection retry with exponential backoff + jitter.
+  // Jitter de-synchronises reconnecting instances to avoid a thundering herd on
+  // the database connection slots after a shared outage/crash.
+  DB_CONNECT_MAX_RETRIES: z.coerce.number().int().min(1).default(8),
+  DB_CONNECT_BASE_BACKOFF_MS: z.coerce.number().int().min(1).default(250),
+  DB_CONNECT_MAX_BACKOFF_MS: z.coerce.number().int().min(1).default(10000),
+
+  // #381: WAL backup configuration guard.
+  // Set to "true" once WAL archiving / continuous backup is enabled on the
+  // database host (e.g. pgBackRest, Barman, AWS RDS automated backups, Supabase
+  // PITR, or any provider that streams WAL segments off-host).
+  // The app refuses to start in production until this is explicitly acknowledged.
+  PG_WAL_BACKUP_CONFIGURED: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
+  // Human-readable label used in boot logs (e.g. "pgbackrest", "rds-automated", "supabase-pitr").
+  PG_WAL_BACKUP_PROVIDER: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -411,6 +431,19 @@ export const config = {
     failOpenTimeoutMs: env.OPENAI_FAIL_OPEN_TIMEOUT_MS,
     failOpenMaxRetries: env.OPENAI_FAIL_OPEN_MAX_RETRIES,
     failOpenRetryBaseMs: env.OPENAI_FAIL_OPEN_RETRY_BASE_MS,
+  },
+
+  // Startup database connection retry (#402)
+  database: {
+    connectMaxRetries: env.DB_CONNECT_MAX_RETRIES,
+    connectBaseBackoffMs: env.DB_CONNECT_BASE_BACKOFF_MS,
+    connectMaxBackoffMs: env.DB_CONNECT_MAX_BACKOFF_MS,
+  },
+
+  // #381: WAL / continuous backup configuration
+  walBackup: {
+    configured: env.PG_WAL_BACKUP_CONFIGURED === "true",
+    provider: env.PG_WAL_BACKUP_PROVIDER || "",
   },
 
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)

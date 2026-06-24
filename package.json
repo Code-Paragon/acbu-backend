@@ -28,7 +28,7 @@
     "backfill:org-limits": "ts-node --transpile-only prisma/backfillOrgTransactionContext.ts",
     "stellar:create-wallet": "ts-node --transpile-only scripts/create-stellar-wallet.ts",
     "compute:basket-weights": "ts-node --transpile-only scripts/compute-basket-weights.ts",
-    "postinstall": "prisma generate && tsc -p tsconfig.build.json"
+    "postinstall": "prisma generate"
   },
   "keywords": [
     "acbu",

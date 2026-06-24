@@ -40,3 +40,7 @@ Thumbs.db
 tmp/
 temp/
 .idea
+
+# Heap snapshots written by the memory leak detector (#436)
+heapdumps/
+*.heapsnapshot

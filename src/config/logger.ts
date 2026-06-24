@@ -1,4 +1,5 @@
 import winston from "winston";
+import DailyRotateFile from "winston-daily-rotate-file";
 import path from "path";
 import { config } from "./env";
 import { FinancialLogPayload, FinancialEventEnvironment } from "../types/logging";
@@ -39,14 +40,24 @@ export const logger = winston.createLogger({
     new winston.transports.Console({
       format: consoleFormat,
     }),
-    // Write all logs with level 'error' and below to error.log
-    new winston.transports.File({
-      filename: path.join(logDir, "error.log"),
+    // Rotating error log: daily rotation, 14-day retention, 100 MB max per file
+    new DailyRotateFile({
+      dirname: logDir,
+      filename: "error-%DATE%.log",
+      datePattern: "YYYY-MM-DD",
       level: "error",
+      maxFiles: "14d",
+      maxSize: "100m",
+      zippedArchive: true,
     }),
-    // Write all logs to combined.log
-    new winston.transports.File({
-      filename: config.logFile,
+    // Rotating combined log: daily rotation, 30-day retention, 100 MB max per file
+    new DailyRotateFile({
+      dirname: logDir,
+      filename: "combined-%DATE%.log",
+      datePattern: "YYYY-MM-DD",
+      maxFiles: "30d",
+      maxSize: "100m",
+      zippedArchive: true,
     }),
   ],
 });

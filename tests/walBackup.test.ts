@@ -12,7 +12,16 @@ const REQUIRED_ENV = {
   RABBITMQ_URL: "amqp://localhost:5672",
   JWT_SECRET: "test-secret",
   PRISMA_ACCELERATE_URL: "prisma://accelerate.prisma-data.net/?api_key=test",
+  CORS_ORIGIN: "https://app.acbu.io",
 };
+
+const mockPrismaClient = () => ({
+  $use: jest.fn(),
+  $connect: jest.fn().mockResolvedValue(undefined),
+  $disconnect: jest.fn(),
+  $on: jest.fn(),
+  $extends: jest.fn().mockReturnThis(),
+});
 
 describe("#381 WAL backup guard", () => {
   const ORIGINAL = process.env;
@@ -31,12 +40,7 @@ describe("#381 WAL backup guard", () => {
 
     // Mock PrismaClient so no real DB connection is attempted
     jest.mock("@prisma/client", () => ({
-      PrismaClient: jest.fn().mockImplementation(() => ({
-        $use: jest.fn(),
-        $connect: jest.fn().mockResolvedValue(undefined),
-        $disconnect: jest.fn(),
-        $on: jest.fn(),
-      })),
+      PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
       Prisma: { PrismaClientKnownRequestError: class {} },
     }));
     jest.mock("@prisma/extension-accelerate", () => ({
@@ -51,12 +55,7 @@ describe("#381 WAL backup guard", () => {
     process.env.PG_WAL_BACKUP_CONFIGURED = "false";
 
     jest.mock("@prisma/client", () => ({
-      PrismaClient: jest.fn().mockImplementation(() => ({
-        $use: jest.fn(),
-        $connect: jest.fn().mockResolvedValue(undefined),
-        $disconnect: jest.fn(),
-        $on: jest.fn(),
-      })),
+      PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
       Prisma: { PrismaClientKnownRequestError: class {} },
     }));
     jest.mock("@prisma/extension-accelerate", () => ({
@@ -71,14 +70,8 @@ describe("#381 WAL backup guard", () => {
     process.env.PG_WAL_BACKUP_CONFIGURED = "true";
     process.env.PG_WAL_BACKUP_PROVIDER = "pgbackrest";
 
-    const mockConnect = jest.fn().mockResolvedValue(undefined);
     jest.mock("@prisma/client", () => ({
-      PrismaClient: jest.fn().mockImplementation(() => ({
-        $use: jest.fn(),
-        $connect: mockConnect,
-        $disconnect: jest.fn(),
-        $on: jest.fn(),
-      })),
+      PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
       Prisma: { PrismaClientKnownRequestError: class {} },
     }));
     jest.mock("@prisma/extension-accelerate", () => ({
@@ -94,14 +87,8 @@ describe("#381 WAL backup guard", () => {
     delete process.env.PG_WAL_BACKUP_CONFIGURED;
     delete process.env.PRISMA_ACCELERATE_URL; // not required in dev
 
-    const mockConnect = jest.fn().mockResolvedValue(undefined);
     jest.mock("@prisma/client", () => ({
-      PrismaClient: jest.fn().mockImplementation(() => ({
-        $use: jest.fn(),
-        $connect: mockConnect,
-        $disconnect: jest.fn(),
-        $on: jest.fn(),
-      })),
+      PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
       Prisma: { PrismaClientKnownRequestError: class {} },
     }));
     jest.mock("@prisma/extension-accelerate", () => ({

@@ -1,17 +1,14 @@
 import { initTracing } from "./config/tracing";
 initTracing();
 
-<<<<<<< HEAD
-import express, { type NextFunction, type Request, type Response } from "express";
-=======
 import "express-async-errors";
 
+import { execSync } from "child_process";
 import express, {
   type NextFunction,
   type Request,
   type Response,
 } from "express";
->>>>>>> upstream/main
 import helmet from "helmet";
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
@@ -28,7 +25,6 @@ import { standardRateLimiter } from "./middleware/rateLimiter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
-import { AppError } from "./middleware/errorHandler";
 import { ErrorCodes } from "./types/errorCodes";
 import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 

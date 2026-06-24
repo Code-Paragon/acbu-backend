@@ -10,19 +10,117 @@ const PS_SECRET = "test-paystack-secret";
 
 jest.mock("../config/env", () => ({
   config: {
+    nodeEnv: "test",
+    port: 5000,
+    apiVersion: "v1",
+    databaseUrl: "",
+    prismaAccelerateUrl: "",
+    mongodbUri: "",
+    rabbitmqUrl: "",
+    jwtSecret: "secret",
+    jwtExpiresIn: "7d",
+    apiKeySalt: "",
+    rateLimitWindowMs: 60000,
+    rateLimitMaxRequests: 100,
+    rateLimitFallbackMaxRequests: 20,
+    rateLimitCircuitBreakerThreshold: 5,
+    rateLimitCircuitBreakerCooldownMs: 60000,
+    logLevel: "info",
+    logFile: "logs/app.log",
     flutterwave: { webhookSecret: FW_SECRET },
     paystack: { secretKey: PS_SECRET },
+    mtnMomo: {
+      subscriptionKey: "",
+      apiUserId: "",
+      apiKey: "",
+      baseUrl: "",
+      targetEnvironment: "sandbox",
+    },
+    fintech: {
+      currencyProviders: {},
+    },
+    stellar: {
+      network: "testnet",
+      horizonUrl: "https://horizon-testnet.stellar.org",
+      sorobanRpcUrl: "https://soroban-testnet.stellar.org",
+    },
+    limits: {
+      retail: {
+        depositDailyUsd: 5000,
+        depositMonthlyUsd: 50000,
+        withdrawalSingleCurrencyDailyUsd: 10000,
+        withdrawalSingleCurrencyMonthlyUsd: 80000,
+      },
+      business: {
+        depositDailyUsd: 50000,
+        depositMonthlyUsd: 500000,
+        withdrawalSingleCurrencyDailyUsd: 100000,
+        withdrawalSingleCurrencyMonthlyUsd: 800000,
+      },
+      government: {
+        depositDailyUsd: 500000,
+        depositMonthlyUsd: 5000000,
+        withdrawalSingleCurrencyDailyUsd: 500000,
+        withdrawalSingleCurrencyMonthlyUsd: 4000000,
+      },
+      circuitBreaker: {
+        reserveWeightThresholdPct: 10,
+        minReserveRatio: 1.02,
+      },
+    },
+    oracle: {
+      updateIntervalHours: 6,
+      emergencyThreshold: 0.05,
+      maxDeviationPerUpdate: 0.05,
+      circuitBreakerThreshold: 0.10,
+      forex: { baseUrl: "", apiKey: "" },
+      centralBankUrls: {},
+    },
+    reserve: {
+      minRatio: 1.02,
+      targetRatio: 1.05,
+      alertThreshold: 1.02,
+    },
+    notification: {
+      emailProvider: "log",
+      emailFrom: "noreply@example.com",
+      sendgridApiKey: "",
+      sesRegion: "us-east-1",
+      smsProvider: "log",
+      alertEmail: "",
+      twilioAccountSid: "",
+      twilioAuthToken: "",
+      twilioFromNumber: "",
+      africasTalkingApiKey: "",
+      africasTalkingUsername: "",
+    },
+    webhook: {
+      url: "",
+      secret: "",
+    },
+    corsOrigin: ["*"],
+    challengeTokenSecret: "default_secret",
   },
 }));
 
 jest.mock("../config/logger", () => ({
   logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
+  logFinancialEvent: jest.fn(),
 }));
 
 jest.mock("../config/database", () => ({
   prisma: {
     webhook: { create: jest.fn() },
   },
+}));
+
+jest.mock("../services/limits/limitsService", () => ({
+  checkWithdrawalLimits: jest.fn(),
+  isCurrencyWithdrawalPaused: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock("../services/bills", () => ({
+  reconcileBillsWebhook: jest.fn(),
 }));
 
 import {
@@ -53,6 +151,10 @@ describe("webhookController", () => {
   // ── verifyFlutterwaveSignature ─────────────────────────────────────────────
 
   describe("verifyFlutterwaveSignature", () => {
+    const validTimestamp = () => String(Math.floor(Date.now() / 1000));
+    const expiredTimestamp = () => String(Math.floor(Date.now() / 1000) - 600); // 10 min ago
+    const futureTimestamp = () => String(Math.floor(Date.now() / 1000) + 600); // 10 min ahead
+
     it("calls next() with no args on a valid HMAC-SHA256 signature", () => {
       const rawBody = Buffer.from(
         JSON.stringify({ event: "charge.completed" }),
@@ -62,7 +164,7 @@ describe("webhookController", () => {
         .update(rawBody)
         .digest("hex");
       const req = {
-        headers: { "verif-hash": sig },
+        headers: { "verif-hash": sig, "x-flw-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const next = makeNext();
@@ -75,7 +177,7 @@ describe("webhookController", () => {
         JSON.stringify({ event: "charge.completed" }),
       );
       const req = {
-        headers: { "verif-hash": "a".repeat(64) },
+        headers: { "verif-hash": "a".repeat(64), "x-flw-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const res = makeRes();
@@ -88,7 +190,7 @@ describe("webhookController", () => {
 
     it("returns 401 when verif-hash header is absent", () => {
       const rawBody = Buffer.from("{}");
-      const req = { headers: {}, rawBody } as unknown as RawRequest;
+      const req = { headers: { "x-flw-timestamp": validTimestamp() }, rawBody } as unknown as RawRequest;
       const res = makeRes();
       verifyFlutterwaveSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(401);
@@ -98,7 +200,7 @@ describe("webhookController", () => {
     });
 
     it("returns 400 when rawBody is missing", () => {
-      const req = { headers: { "verif-hash": "abc" } } as unknown as RawRequest;
+      const req = { headers: { "verif-hash": "abc", "x-flw-timestamp": validTimestamp() } } as unknown as RawRequest;
       const res = makeRes();
       verifyFlutterwaveSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(400);
@@ -107,18 +209,77 @@ describe("webhookController", () => {
     it("returns 401 when signature length causes timingSafeEqual to throw (caught internally)", () => {
       const rawBody = Buffer.from("{}");
       const req = {
-        headers: { "verif-hash": "tooshort" },
+        headers: { "verif-hash": "tooshort", "x-flw-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const res = makeRes();
       verifyFlutterwaveSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(401);
     });
+
+    // ── #390 timestamp validation ──────────────────────────────────────────
+
+    it("returns 401 when x-flw-timestamp header is absent", () => {
+      const rawBody = Buffer.from("{}");
+      const req = { headers: { "verif-hash": "abc" }, rawBody } as unknown as RawRequest;
+      const res = makeRes();
+      verifyFlutterwaveSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-flw-timestamp is expired (>5 min old)", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "verif-hash": "abc", "x-flw-timestamp": expiredTimestamp() },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyFlutterwaveSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-flw-timestamp is too far in the future (>5 min)", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "verif-hash": "abc", "x-flw-timestamp": futureTimestamp() },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyFlutterwaveSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-flw-timestamp is not a valid number or date", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "verif-hash": "abc", "x-flw-timestamp": "not-a-date" },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyFlutterwaveSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
   });
 
   // ── verifyPaystackSignature ────────────────────────────────────────────────
 
   describe("verifyPaystackSignature", () => {
+    const validTimestamp = () => String(Math.floor(Date.now() / 1000));
+    const expiredTimestamp = () => String(Math.floor(Date.now() / 1000) - 600);
+    const futureTimestamp = () => String(Math.floor(Date.now() / 1000) + 600);
+
     it("calls next() with no args on a valid HMAC-SHA512 signature", () => {
       const rawBody = Buffer.from(JSON.stringify({ event: "charge.success" }));
       const sig = crypto
@@ -126,7 +287,7 @@ describe("webhookController", () => {
         .update(rawBody)
         .digest("hex");
       const req = {
-        headers: { "x-paystack-signature": sig },
+        headers: { "x-paystack-signature": sig, "x-paystack-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const next = makeNext();
@@ -137,7 +298,7 @@ describe("webhookController", () => {
     it("returns 401 on mismatched signature", () => {
       const rawBody = Buffer.from("{}");
       const req = {
-        headers: { "x-paystack-signature": "deadbeef" },
+        headers: { "x-paystack-signature": "deadbeef", "x-paystack-timestamp": validTimestamp() },
         rawBody,
       } as unknown as RawRequest;
       const res = makeRes();
@@ -150,7 +311,7 @@ describe("webhookController", () => {
 
     it("returns 401 when x-paystack-signature header is absent", () => {
       const rawBody = Buffer.from("{}");
-      const req = { headers: {}, rawBody } as unknown as RawRequest;
+      const req = { headers: { "x-paystack-timestamp": validTimestamp() }, rawBody } as unknown as RawRequest;
       const res = makeRes();
       verifyPaystackSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(401);
@@ -163,11 +324,66 @@ describe("webhookController", () => {
 
     it("returns 400 when rawBody is missing", () => {
       const req = {
-        headers: { "x-paystack-signature": "abc" },
+        headers: { "x-paystack-signature": "abc", "x-paystack-timestamp": validTimestamp() },
       } as unknown as RawRequest;
       const res = makeRes();
       verifyPaystackSignature(req, res, makeNext());
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    // ── #390 timestamp validation ──────────────────────────────────────────
+
+    it("returns 401 when x-paystack-timestamp header is absent", () => {
+      const rawBody = Buffer.from("{}");
+      const req = { headers: { "x-paystack-signature": "abc" }, rawBody } as unknown as RawRequest;
+      const res = makeRes();
+      verifyPaystackSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-paystack-timestamp is expired (>5 min old)", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "x-paystack-signature": "abc", "x-paystack-timestamp": expiredTimestamp() },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyPaystackSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-paystack-timestamp is too far in the future (>5 min)", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "x-paystack-signature": "abc", "x-paystack-timestamp": futureTimestamp() },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyPaystackSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+    });
+
+    it("returns 401 when x-paystack-timestamp is not a valid number or date", () => {
+      const rawBody = Buffer.from("{}");
+      const req = {
+        headers: { "x-paystack-signature": "abc", "x-paystack-timestamp": "garbage" },
+        rawBody,
+      } as unknown as RawRequest;
+      const res = makeRes();
+      verifyPaystackSignature(req, res, makeNext());
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
     });
   });
 
@@ -177,6 +393,7 @@ describe("webhookController", () => {
     it("persists webhook record with paystack: prefix and returns 200", async () => {
       (prisma.webhook.create as jest.Mock).mockResolvedValue({ id: "wh-1" });
       const req = {
+        headers: {},
         body: {
           event: "charge.success",
           data: { reference: "ref-1", status: "success" },
@@ -204,7 +421,7 @@ describe("webhookController", () => {
     it("uses 'unknown' eventType when event field is absent", async () => {
       (prisma.webhook.create as jest.Mock).mockResolvedValue({});
       await handlePaystackWebhook(
-        { body: {} } as Request,
+        { headers: {}, body: {} } as Request,
         makeRes(),
         makeNext(),
       );
@@ -221,7 +438,7 @@ describe("webhookController", () => {
       );
       const next = makeNext();
       await handlePaystackWebhook(
-        { body: { event: "charge.success" } } as Request,
+        { headers: {}, body: { event: "charge.success" } } as Request,
         makeRes(),
         next,
       );
@@ -235,6 +452,7 @@ describe("webhookController", () => {
     it("persists webhook record and returns 200", async () => {
       (prisma.webhook.create as jest.Mock).mockResolvedValue({ id: "wh-2" });
       const req = {
+        headers: {},
         body: {
           event: "charge.completed",
           data: { tx_ref: "ref-2", status: "successful" },
@@ -262,7 +480,7 @@ describe("webhookController", () => {
     it("falls back to payload.type when event field is absent", async () => {
       (prisma.webhook.create as jest.Mock).mockResolvedValue({});
       await handleFlutterwaveWebhook(
-        { body: { type: "CARD_TRANSACTION", data: {} } } as Request,
+        { headers: {}, body: { type: "CARD_TRANSACTION", data: {} } } as Request,
         makeRes(),
         makeNext(),
       );
@@ -278,7 +496,7 @@ describe("webhookController", () => {
         new Error("DB error"),
       );
       const next = makeNext();
-      await handleFlutterwaveWebhook({ body: {} } as Request, makeRes(), next);
+      await handleFlutterwaveWebhook({ headers: {}, body: {} } as Request, makeRes(), next);
       expect(next).toHaveBeenCalledWith(expect.any(Error));
     });
   });

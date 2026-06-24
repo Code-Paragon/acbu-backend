@@ -2,31 +2,48 @@
  * Investment withdrawal job: at T+24h mark requests as 'available' and send "investment withdrawal ready" notification.
  */
 import { prisma } from "../config/database";
-import { publishInvestmentWithdrawalReady } from "../controllers/investmentController";
 import { logger } from "../config/logger";
+import { publishInvestmentWithdrawalReady } from "../services/investment/withdrawalNotificationService";
+import {
+  getReadyInvestmentWithdrawalBatch,
+  READY_WITHDRAWAL_STATUSES,
+} from "../services/investment/withdrawalTimingService";
 
 export async function processInvestmentWithdrawalAvailability(): Promise<void> {
-  const now = new Date();
-  const records = await prisma.investmentWithdrawalRequest.findMany({
-    where: {
-      status: { in: ["requested", "processing"] },
-      availableAt: { lte: now },
-    },
-    take: 100,
-  });
+  const { trustedNow, records } = await getReadyInvestmentWithdrawalBatch();
   for (const r of records) {
     try {
-      await prisma.investmentWithdrawalRequest.update({
-        where: { id: r.id },
-        data: { status: "available", notifiedAt: new Date() },
+      const transition = await prisma.investmentWithdrawalRequest.updateMany({
+        where: {
+          id: r.id,
+          status: { in: [...READY_WITHDRAWAL_STATUSES] },
+          availableAt: { lte: trustedNow },
+        },
+        data: { status: "available", notifiedAt: trustedNow },
       });
+      if (transition.count === 0) {
+        logger.info(
+          "Investment withdrawal already processed or no longer ready",
+          {
+            requestId: r.id,
+          },
+        );
+        continue;
+      }
+
       const amountAcbu = r.amountAcbu.toNumber();
       if (r.userId || r.organizationId) {
-        await publishInvestmentWithdrawalReady(r.userId, amountAcbu);
+        await publishInvestmentWithdrawalReady(
+          r.userId,
+          amountAcbu,
+          r.organizationId,
+          trustedNow,
+        );
       }
       logger.info("Investment withdrawal marked available and notified", {
         requestId: r.id,
         userId: r.userId,
+        organizationId: r.organizationId,
         amountAcbu,
       });
     } catch (e) {

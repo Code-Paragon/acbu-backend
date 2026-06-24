@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main, dev, develop]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+env:
+  DESTRUCTIVE_MIGRATION_LABEL: allow-destructive-migration
 
 jobs:
   lint-and-test:
@@ -23,13 +27,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      rabbitmq:
+        image: rabbitmq:3.13-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10.33.1
 
       - uses: actions/setup-node@v4
         with:
@@ -39,6 +54,27 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit dependencies for critical vulnerabilities
+        run: |
+          pnpm audit --json > audit.json || true
+          node <<'NODE'
+          const fs = require('fs');
+          const audit = JSON.parse(fs.readFileSync('audit.json', 'utf8'));
+          const metadataCritical = audit.metadata?.vulnerabilities?.critical;
+          const vulnList = audit.vulnerabilities || {};
+          const advisoryCritical = Object.values(vulnList).filter(v => v.severity === 'critical').length;
+          const criticalCount = metadataCritical ?? advisoryCritical;
+          if (criticalCount > 0) {
+            console.error(`Critical vulnerabilities found: ${criticalCount}`);
+            process.exit(1);
+          }
+          console.log('No critical vulnerabilities found.');
+          NODE
+
+      - name: Gate destructive Prisma migrations
+        if: github.event_name == 'pull_request'
+        run: node scripts/ci/check-destructive-migrations.js
+
       - name: Lint
         run: pnpm run lint
 
@@ -47,6 +83,11 @@ jobs:
 
       - name: Generate Prisma Client
         run: pnpm run prisma:generate
+
+      - name: Apply Prisma migrations
+        run: pnpm run prisma:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
 
       - name: Run tests
         run: pnpm test
@@ -59,8 +100,3 @@ jobs:
 
       - name: Build
         run: pnpm run build
-
-      - name: Validate migrations
-        run: pnpm run prisma:migrate:deploy
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test

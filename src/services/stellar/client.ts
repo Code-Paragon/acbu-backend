@@ -8,6 +8,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { config } from "../../config/env";
 import { logger } from "../../config/logger";
+import { CircuitBreaker } from "../../utils/circuitBreaker";
 
 const Server = Horizon.Server;
 
@@ -20,11 +21,19 @@ export interface StellarNetworkConfig {
 
 export type StellarServer = InstanceType<typeof Server>;
 
+export interface FeeBumpOptions {
+  /** Secret key for the account paying the fee bump. Defaults to the configured Stellar secret key. */
+  feeSourceSecretKey?: string;
+  /** Fee per operation, in stroops. Defaults to 10x the configured base fee. */
+  baseFee?: string;
+}
+
 export class StellarClient {
   private server: StellarServer;
   private network: "testnet" | "mainnet";
   private networkPassphrase: string;
   private keypair: Keypair | null = null;
+  readonly horizonBreaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 30_000, successThreshold: 2 });
 
   constructor(cfg?: Partial<StellarNetworkConfig>) {
     const network = (cfg?.network ?? config.stellar.network) as
@@ -33,6 +42,7 @@ export class StellarClient {
     const horizonUrl = cfg?.horizonUrl ?? config.stellar.horizonUrl;
     const networkPassphrase =
       cfg?.networkPassphrase ??
+      config.stellar.networkPassphrase ??
       (network === "testnet"
         ? "Test SDF Network ; September 2015"
         : "Public Global Stellar Network ; September 2015");
@@ -101,9 +111,14 @@ export class StellarClient {
   async getAccount(accountId: string, retries = 3) {
     for (let i = 0; i < retries; i++) {
       try {
+        if (!this.horizonBreaker.canExecute()) {
+          throw new Error("Horizon circuit breaker is OPEN — skipping request");
+        }
         const account = await this.server.loadAccount(accountId);
+        this.horizonBreaker.recordSuccess();
         return account;
       } catch (error: any) {
+        this.horizonBreaker.recordFailure();
         if (i === retries - 1) {
           logger.error("Failed to load account after retries", {
             accountId,
@@ -141,8 +156,12 @@ export class StellarClient {
       if (!fee) {
         if (config.stellar.useDynamicFees) {
           try {
-            fee = String(await this.server.fetchBaseFee());
+            if (this.horizonBreaker.canExecute()) {
+              fee = String(await this.server.fetchBaseFee());
+              this.horizonBreaker.recordSuccess();
+            }
           } catch (err) {
+            this.horizonBreaker.recordFailure();
             logger.warn(
               "Failed to fetch dynamic Stellar base fee; falling back to configured value",
               { err, fallback: config.stellar.baseFeeStroops },
@@ -182,19 +201,150 @@ export class StellarClient {
    */
   async submitTransaction(transaction: Transaction | FeeBumpTransaction) {
     try {
+      if (!this.horizonBreaker.canExecute()) {
+        throw new Error("Horizon circuit breaker is OPEN — cannot submit transaction");
+      }
       const result = await this.server.submitTransaction(transaction);
+      this.horizonBreaker.recordSuccess();
       logger.info("Transaction submitted", {
         hash: result.hash,
         ledger: result.ledger,
       });
       return result;
     } catch (error: any) {
+      this.horizonBreaker.recordFailure();
       logger.error("Failed to submit transaction", {
         error: error.message,
         extras: error.response?.data?.extras,
       });
       throw error;
     }
+  }
+
+  /**
+   * Build a Stellar fee-bump transaction around an already-signed inner transaction.
+   * This lets operators rescue mint/burn operations that are stuck because their
+   * original fee was too low, without rebuilding or re-signing the inner operation.
+   */
+  buildFeeBumpTransaction(
+    innerTransaction: Transaction,
+    options?: FeeBumpOptions,
+  ): FeeBumpTransaction {
+    const feeSourceKeypair = options?.feeSourceSecretKey
+      ? Keypair.fromSecret(options.feeSourceSecretKey)
+      : this.keypair;
+
+    if (!feeSourceKeypair) {
+      throw new Error("Fee bump source keypair is required");
+    }
+
+    const baseFee =
+      options?.baseFee ?? String(Math.max(config.stellar.baseFeeStroops * 10, 1000));
+
+    const feeBumpTransaction = TransactionBuilder.buildFeeBumpTransaction(
+      feeSourceKeypair,
+      baseFee,
+      innerTransaction,
+      this.networkPassphrase,
+    );
+
+    feeBumpTransaction.sign(feeSourceKeypair);
+    return feeBumpTransaction;
+  }
+
+  /**
+   * Build, sign, and submit a fee-bump transaction for a signed inner transaction.
+   */
+  async submitFeeBumpTransaction(
+    innerTransaction: Transaction,
+    options?: FeeBumpOptions,
+  ) {
+    const feeBumpTransaction = this.buildFeeBumpTransaction(
+      innerTransaction,
+      options,
+    );
+
+    return this.submitTransaction(feeBumpTransaction);
+  }
+
+  /**
+   * Build, sign, and submit a fee-bump transaction from an inner transaction XDR.
+   */
+  async submitFeeBumpTransactionXdr(
+    innerTransactionXdr: string,
+    options?: FeeBumpOptions,
+  ) {
+    const innerTransaction = new Transaction(
+      innerTransactionXdr,
+      this.networkPassphrase,
+    );
+
+    return this.submitFeeBumpTransaction(innerTransaction, options);
+  }
+
+  /**
+   * Build, sign, and submit a transaction with automatic retry for sequence number drift
+   */
+  async buildAndSubmitTransaction(
+    sourceAccountId: string,
+    operations: Operation[],
+    options?: {
+      fee?: string;
+      timebounds?: { minTime: number; maxTime: number };
+    },
+  ) {
+    let attempt = 0;
+    const maxAttempts = 2;
+
+    while (attempt < maxAttempts) {
+      try {
+        const transaction = await this.buildTransaction(
+          sourceAccountId,
+          operations,
+          options,
+        );
+        const result = await this.submitTransaction(transaction);
+        logger.info("Transaction submitted", {
+          hash: result.hash,
+          ledger: result.ledger,
+          attempt: attempt + 1,
+        });
+        return result;
+      } catch (error: any) {
+        attempt++;
+
+        // Check if this is a tx_bad_seq error
+        const isBadSeqError =
+          error.response?.data?.extras?.result_codes?.operations?.[0] ===
+            "tx_bad_seq" ||
+          error.message?.includes("tx_bad_seq");
+
+        if (isBadSeqError && attempt < maxAttempts) {
+          logger.warn(
+            "Sequence number drift detected (tx_bad_seq). Reloading account and retrying...",
+            {
+              sourceAccountId,
+              attempt,
+              maxAttempts,
+            },
+          );
+          // Force reload the account to get fresh sequence number
+          await this.getAccount(sourceAccountId);
+          continue;
+        }
+
+        // Log error and throw on final attempt or non-sequence errors
+        logger.error("Failed to submit transaction", {
+          error: error.message,
+          extras: error.response?.data?.extras,
+          attempt,
+          maxAttempts,
+        });
+        throw error;
+      }
+    }
+
+    throw new Error("Failed to submit transaction after retries");
   }
 
   /**
@@ -276,4 +426,5 @@ export const stellarClient = new StellarClient({
   network: config.stellar.network as "testnet" | "mainnet",
   horizonUrl: config.stellar.horizonUrl,
   secretKey: config.stellar.secretKey,
+  networkPassphrase: config.stellar.networkPassphrase,
 });

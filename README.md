@@ -17,15 +17,14 @@ Backend API server for the ACBU (African Currency Basket Unit) platform.
 
 - Node.js 20 or higher
 - Docker and Docker Compose
-- npm or yarn
+- pnpm 10+ (Required package manager)
 
 ## Setup Instructions
 
 ### 1. Clone and Install
 
 ```bash
-cd backend
-npm install
+pnpm install
 ```
 
 ### 2. Environment Configuration
@@ -43,6 +42,21 @@ Edit `.env` and configure:
 - API keys for fintech partners (Flutterwave, etc.)
 - JWT secrets
 - Other service configurations
+
+### Database URL Matrix
+
+Two separate environment variables serve distinct purposes — using the wrong one for the wrong purpose causes silent failures or boot errors.
+
+| Variable | Protocol | Used by | Must NOT be used for |
+|---|---|---|---|
+| `DATABASE_URL` | `postgresql://` or `postgres://` | `prisma migrate` (schema migrations) | Runtime app server; Prisma Accelerate |
+| `PRISMA_ACCELERATE_URL` | `prisma://` or `prisma+postgres://` | App server at runtime (connection pooling, caching) | Migrations (`prisma migrate` will fail with this URL) |
+
+**Rules:**
+- `DATABASE_URL` must always be a **direct** PostgreSQL connection string. The server asserts this at boot and will refuse to start if it detects a `prisma://` protocol here.
+- `PRISMA_ACCELERATE_URL` is optional. When set, the app uses it for all runtime queries. When absent, the app falls back to `DATABASE_URL` directly (suitable for local dev).
+- Never run `pnpm prisma:migrate` pointing at `PRISMA_ACCELERATE_URL`. Always run migrations against the direct `DATABASE_URL`.
+- The boot log prints which URL type is active: `Runtime connection: Prisma Accelerate (pooled)` or `Runtime connection: direct PostgreSQL`.
 
 ### 3. Message queue and optional local services
 
@@ -64,19 +78,19 @@ Initialize Prisma and run migrations:
 
 ```bash
 # Generate Prisma Client
-npm run prisma:generate
+pnpm prisma:generate
 
 # Run database migrations
-npm run prisma:migrate
+pnpm prisma:migrate
 
 # (Optional) Seed database
-npm run prisma:seed
+pnpm prisma:seed
 ```
 
 ### 5. Start Development Server
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 The server will start on `http://localhost:3000` (or the port specified in `.env`).
@@ -85,20 +99,18 @@ Nodemon will automatically restart the server when you make changes to the code.
 
 ## Available Scripts
 
-- `npm run dev` - Start development server with hot reloading
-- `npm run build` - Build TypeScript to JavaScript
-- `npm start` - Start production server
-- `npm test` - Run tests
-- `npm run test:watch` - Run tests in watch mode
-- `npm run test:coverage` - Run tests with coverage report
-- `npm run lint` - Run ESLint
-- `npm run lint:fix` - Fix ESLint errors
-- `npm run format` - Format code with Prettier
-- `npm run format:check` - Check code formatting
-- `npm run prisma:generate` - Generate Prisma Client
-- `npm run prisma:migrate` - Run database migrations
-- `npm run prisma:studio` - Open Prisma Studio
-- `npm run prisma:seed` - Seed database with initial data
+- `pnpm dev` - Start development server with hot reloading
+- `pnpm build` - Build TypeScript to JavaScript
+- `pnpm start` - Start production server
+- `pnpm test` - Run tests
+- `pnpm lint` - Run ESLint
+- `pnpm lint:fix` - Fix ESLint errors
+- `pnpm format` - Format code with Prettier
+- `pnpm format:check` - Check code formatting
+- `pnpm prisma:generate` - Generate Prisma Client
+- `pnpm prisma:migrate` - Run database migrations
+- `pnpm prisma:studio` - Open Prisma Studio
+- `pnpm prisma:seed` - Seed database with initial data
 
 ## Project Structure
 
@@ -123,9 +135,9 @@ backend/
 ## API Documentation
 
 Once the server is running, API documentation is available at:
-- Swagger UI: `http://localhost:3000/api-docs`
+- Swagger UI: `http://localhost:3000/api-docs` (development only, disabled in production for security)
 
-**Segment routes** (require API key with segment scope): `/v1/p2p`, `/v1/sme`, `/v1/international`, `/v1/salary`, `/v1/enterprise`, `/v1/savings`, `/v1/lending`, `/v1/gateway`, `/v1/bills`. For a full list of routes and smart contracts, see the repo docs: [API and Contracts Reference](../DOCS/API_AND_CONTRACTS_REFERENCE.MD).
+**Segment routes** (require API key with segment scope): `/v1/p2p`, `/v1/sme`, `/v1/international`, `/v1/salary`, `/v1/enterprise`, `/v1/savings`, `/v1/lending`, `/v1/gateway`, `/v1/bills`. For a full list of routes and smart contracts, see the repository docs in the `docs/` folder.
 
 ## Database Management
 
@@ -134,7 +146,7 @@ Once the server is running, API documentation is available at:
 View and edit database data using Prisma Studio:
 
 ```bash
-npm run prisma:studio
+pnpm prisma:studio
 ```
 
 ### Migrations
@@ -142,7 +154,7 @@ npm run prisma:studio
 Create a new migration:
 
 ```bash
-npm run prisma:migrate
+pnpm prisma:migrate
 ```
 
 ## Testing
@@ -150,13 +162,13 @@ npm run prisma:migrate
 Run all tests:
 
 ```bash
-npm test
+pnpm test
 ```
 
 Run tests with coverage:
 
 ```bash
-npm run test:coverage
+pnpm test:coverage
 ```
 
 ## Environment Variables
@@ -168,6 +180,12 @@ npm run test:coverage
 **Fintech:** Flutterwave (`FLUTTERWAVE_SECRET_KEY`, etc.), Paystack (`PAYSTACK_SECRET_KEY`), MTN MoMo (`MTN_MOMO_SUBSCRIPTION_KEY`, `MTN_MOMO_API_USER_ID`, `MTN_MOMO_API_KEY`). Optional: `FINTECH_CURRENCY_PROVIDERS`.
 
 **Stellar:** `STELLAR_NETWORK`, `STELLAR_SECRET_KEY`, and after deploy: `CONTRACT_ORACLE`, `CONTRACT_RESERVE_TRACKER`, `CONTRACT_MINTING`, `CONTRACT_BURNING`. Optional for segment features: `CONTRACT_SAVINGS_VAULT`, `CONTRACT_LENDING_POOL`, `CONTRACT_ESCROW`.
+
+**Stellar Fee Configuration:** Control transaction fees under varying network congestion:
+- `STELLAR_USE_DYNAMIC_FEES=true` - Fetch live base fee from Horizon before each transaction (recommended for production)
+- `STELLAR_BASE_FEE_STROOPS=100` - Fallback base fee when dynamic fetch unavailable (default: 100)
+- `STELLAR_SOROBAN_MIN_FEE_STROOPS=5000` - Minimum total fee for Soroban transactions to prevent underpricing (default: 5000)
+- `STELLAR_SOROBAN_MAX_FEE_STROOPS=10000000` - Maximum total fee for Soroban transactions to prevent overpaying (~50 XLM at base=100; default: 10M stroops)
 
 ## Docker Services
 
@@ -191,25 +209,79 @@ docker-compose down
 docker-compose logs -f
 ```
 
+## Health Check Endpoints
+
+The API provides three health check endpoints with different purposes:
+
+### `/health` - Shallow Liveness Check
+- **Path:** `GET /api/v1/health`
+- **Status:** Always returns `200 OK`
+- **Purpose:** For load balancers to verify the process is alive
+- **Response:** `{ status: "ok", timestamp, uptime, version }`
+- **Note:** Does not probe dependencies; fast and reliable
+
+### `/health/ready` - Kubernetes Readiness Probe
+- **Path:** `GET /api/v1/health/ready`
+- **Status:** Returns `200` if all dependencies up, `503` if any down
+- **Purpose:** For Kubernetes readinessProbe configurations
+- **Probes:** PostgreSQL, MongoDB, RabbitMQ
+- **Startup Guard:** Returns `503` during application startup until all infrastructure connections and background jobs are fully initialized, preventing load balancers from routing traffic to partially-initialized instances
+- **Recommendation:** Use this endpoint in K8s deployment readinessProbe
+
+### `/health/deep` - Deep Health Check
+- **Path:** `GET /api/v1/health/deep`
+- **Status:** Returns `200` if all dependencies up, `503` if any down
+- **Purpose:** Detailed dependency status for monitoring dashboards
+- **Response:** Full report with status of each dependency
+- **Startup Guard:** Returns `503` during application startup until all infrastructure connections and background jobs are fully initialized
+
+### Kubernetes Configuration Example
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /api/v1/health/ready
+    port: 5000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 5000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+```
+
 ## CI/CD
 
 GitHub Actions CI pipeline runs on:
-- Push to `main` or `develop` branches
-- Pull requests to `main` or `develop`
+- Push to `main`, `dev`, or `develop` branches
+- Pull requests to `main`, `dev`, or `develop`
 
 The CI pipeline:
 - Runs linter and formatter checks
 - Runs all tests
 - Builds the project
 - Validates database migrations
+- Blocks destructive Prisma migrations unless the pull request carries the `allow-destructive-migration` label
+
+## Recent Changes
+
+### Features
+- **Transfer service** (b6b7036): Implemented `createTransfer` in `transferService.ts` with input validation, KYC checks, and blockchain transaction handling, along with full unit test coverage in `tests/transfer.test.ts`
 
 ## Contributing
 
 1. Create a feature branch
 2. Make your changes
-3. Run tests and linter: `npm test && npm run lint`
+3. Run tests and linter: `pnpm test && pnpm lint`
 4. Commit and push
-5. Create a pull request
+5. Create a pull request (prefer relative references like `#123` instead of hardcoded `github.com/<owner>/...` links)
 
 ## License
 

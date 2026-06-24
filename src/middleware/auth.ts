@@ -3,22 +3,12 @@ import { prisma } from "../config/database";
 import bcrypt from "bcryptjs";
 import { AppError } from "./errorHandler";
 import { logger } from "../config/logger";
+import jwt from "jsonwebtoken";
+import { PermissionScopeEnum, PermissionScope } from "../types/permissions";
 
 export type Audience = "retail" | "business" | "government";
 export type UserTier = "free" | "verified" | "sme" | "enterprise";
-export type PermissionScope =
-  | "p2p:read"
-  | "p2p:write"
-  | "p2p:admin"
-  | "sme:read"
-  | "sme:write"
-  | "sme:admin"
-  | "gateway:read"
-  | "gateway:write"
-  | "gateway:admin"
-  | "enterprise:read"
-  | "enterprise:write"
-  | "enterprise:admin";
+export type ApiKeyType = "USER_KEY" | "ADMIN_KEY" | "BREAK_GLASS_KEY";
 const API_KEY_PREFIX = "acbu";
 const API_KEY_LOOKUP_LENGTH = 12;
 const API_KEY_SECRET_LENGTH = 64;
@@ -32,7 +22,11 @@ export interface AuthRequest extends Request {
     id: string;
     userId: string | null;
     organizationId: string | null;
-    permissions: string[];
+    keyType: ApiKeyType;
+    createdByUserId: string | null;
+    emergencyReason: string | null;
+    emergencyExpiresAt: Date | null;
+    permissions: PermissionScope[];
     rateLimit: number;
   };
   /** Set by audience-specific routes (e.g. /retail, /business, /government) for limits and behaviour. */
@@ -46,18 +40,28 @@ export interface AuthRequest extends Request {
  * @param permissions - Raw permissions from database (Json type)
  * @returns Array of validated permission strings, or empty array if invalid
  */
-function validatePermissions(permissions: unknown): string[] {
-  if (!permissions) {
+function validatePermissions(permissions: unknown): PermissionScope[] {
+  if (!Array.isArray(permissions)) {
+    if (permissions != null) {
+      logger.warn("Invalid permissions in API key record (not an array)", {
+        raw: permissions,
+      });
+    }
     return [];
   }
-
-  if (Array.isArray(permissions)) {
-    return permissions.every((p) => typeof p === "string")
-      ? (permissions as string[])
-      : [];
+  const valid: PermissionScope[] = [];
+  const invalid: unknown[] = [];
+  for (const p of permissions) {
+    const r = PermissionScopeEnum.safeParse(p);
+    if (r.success) valid.push(r.data);
+    else invalid.push(p);
   }
-
-  return [];
+  if (invalid.length > 0) {
+    logger.warn("Dropped invalid permission scopes from API key record", {
+      invalid,
+    });
+  }
+  return valid;
 }
 
 function parseApiKey(
@@ -72,6 +76,37 @@ function parseApiKey(
     lookupKey: match[1].toLowerCase(),
     secret: match[2].toLowerCase(),
   };
+}
+
+/**
+ * Detect if a string appears to be a JWT token and reject challenge tokens.
+ * Challenge tokens CANNOT be used for API access.
+ */
+function rejectIfJwtToken(token: string): void {
+  // JWT tokens have 3 parts separated by dots (header.payload.signature)
+  const parts = token.split(".");
+  if (parts.length === 3) {
+    try {
+      // Decode without verification to check claims
+      const decoded = jwt.decode(token) as Record<string, unknown> | null;
+      if (decoded) {
+        // Check if this is a challenge token (has 2fa_challenge audience)
+        if (decoded.aud === "2fa_challenge" && decoded.iss === "acbu/auth") {
+          logger.error("Attempted to use 2FA challenge token for API access");
+          throw new AppError(
+            "Challenge tokens cannot be used for API access",
+            401,
+          );
+        }
+        // Reject any JWT-like token that isn't a standard API key
+        logger.warn("Non-API-key JWT token rejected for API access");
+        throw new AppError("Invalid credentials format", 401);
+      }
+    } catch (err) {
+      // If jwt.decode fails, it's not a valid JWT, continue with normal validation
+      if (err instanceof AppError) throw err;
+    }
+  }
 }
 
 /**
@@ -91,6 +126,9 @@ export const validateApiKey = async (
       throw new AppError("API key is required", 401);
     }
 
+    // Reject JWT tokens, especially 2FA challenge tokens
+    rejectIfJwtToken(apiKey);
+
     const parsedApiKey = parseApiKey(apiKey);
     if (!parsedApiKey) {
       throw new AppError("Invalid API key format", 401);
@@ -101,7 +139,17 @@ export const validateApiKey = async (
       where: {
         lookupKey: parsedApiKey.lookupKey,
         revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        AND: [
+          {
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+          {
+            OR: [
+              { keyType: { not: "BREAK_GLASS_KEY" } },
+              { emergencyExpiresAt: { gt: new Date() } },
+            ],
+          },
+        ],
       },
       include: {
         user: true,
@@ -136,6 +184,10 @@ export const validateApiKey = async (
       id: apiKeyRecord.id,
       userId: apiKeyRecord.userId ?? null,
       organizationId: apiKeyRecord.organizationId ?? null,
+      keyType: apiKeyRecord.keyType,
+      createdByUserId: apiKeyRecord.createdByUserId ?? null,
+      emergencyReason: apiKeyRecord.emergencyReason ?? null,
+      emergencyExpiresAt: apiKeyRecord.emergencyExpiresAt ?? null,
       permissions: validatePermissions(apiKeyRecord.permissions),
       rateLimit: apiKeyRecord.rateLimit,
     };
@@ -162,7 +214,16 @@ export async function hashApiKey(secret: string): Promise<string> {
  */
 export async function generateApiKey(
   userId?: string,
-  permissions: string[] = [],
+  permissions: PermissionScope[] = [],
+  options?: {
+    organizationId?: string | null;
+    keyType?: ApiKeyType;
+    expiresAt?: Date;
+    emergencyReason?: string;
+    emergencyExpiresAt?: Date;
+    createdByUserId?: string;
+    rateLimit?: number;
+  },
 ): Promise<string> {
   const crypto = await import("crypto");
   const lookupKey = crypto.randomBytes(6).toString("hex");
@@ -173,14 +234,22 @@ export async function generateApiKey(
   await prisma.apiKey.create({
     data: {
       userId: userId ?? null,
+      organizationId: options?.organizationId ?? null,
+      keyType: options?.keyType ?? "USER_KEY",
+      createdByUserId: options?.createdByUserId ?? null,
+      emergencyReason: options?.emergencyReason ?? null,
+      emergencyExpiresAt: options?.emergencyExpiresAt,
       lookupKey,
       keyHash,
       permissions,
+      expiresAt: options?.expiresAt,
+      rateLimit: options?.rateLimit,
     },
   });
 
   logger.info("API key generated", {
     userId,
+    keyType: options?.keyType ?? "USER_KEY",
     hasPermissions: permissions.length > 0,
   });
   return apiKey;

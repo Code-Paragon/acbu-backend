@@ -11,7 +11,11 @@ export async function connectRabbitMQ(): Promise<Channel> {
   }
 
   try {
-    connection = await amqp.connect(config.rabbitmqUrl);
+    // Heartbeat of 30 s ensures the client detects silent TCP drops within one
+    // heartbeat interval rather than waiting for the next publish attempt.
+    // Network appliances that drop idle connections after 60 s are covered
+    // because the client sends a frame every 30 s.
+    connection = await amqp.connect(config.rabbitmqUrl, { heartbeat: 30 });
     const ch = await connection.createChannel();
     channel = ch;
     logger.info("RabbitMQ connected successfully");

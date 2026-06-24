@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { config } from "../config/env";
 import { deepHealthCheck } from "../controllers/healthController";
+import { requireAdminApiKey } from "../middleware/adminAuth";
+import { registry } from "../config/promMetrics";
 import reserveRoutes from "./reserveRoutes";
 import recipientRoutes from "./recipientRoutes";
 import transferRoutes from "./transferRoutes";
@@ -28,6 +30,10 @@ import governmentFundsRoutes from "./governmentFundsRoutes";
 import investmentRoutes from "./investmentRoutes";
 import fiatRoutes from "./fiatRoutes";
 import configRoutes from "./configRoutes";
+import complianceRoutes from "./complianceRoutes";
+import kycRoutes from "./kycRoutes";
+import weightDriftAuditRoutes from "./weightDriftAuditRoutes";
+import kycValidatorRewardRoutes from "./kycValidatorRewardRoutes";
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -41,11 +47,37 @@ router.get("/health", (_req, res) => {
   });
 });
 
+// Changelog / version history — lists current and past API versions with status
+router.get("/changelog", (_req, res) => {
+  res.json({
+    currentVersion: config.apiVersion,
+    versions: [
+      {
+        version: "v1",
+        status: "current",
+        releasedAt: "2024-01-01",
+        description: "Initial public release of the ACBU API.",
+      },
+    ],
+  });
+});
+
+// Kubernetes readiness check — probes all critical dependencies; returns 503 if any are down
+// Use this endpoint for K8s readinessProbe configurations
+router.get("/health/ready", deepHealthCheck);
+
 // Deep health check — probes PostgreSQL, MongoDB, RabbitMQ; returns 503 if any are down
-router.get("/health/deep", deepHealthCheck);
+router.get("/health/deep", requireAdminApiKey, deepHealthCheck);
 
 // Extended health / metrics (reserve ratio when available; for monitoring dashboards)
-router.get("/health/metrics", deepHealthCheck);
+router.get("/health/metrics", requireAdminApiKey, deepHealthCheck);
+
+// #388: Prometheus-compatible metrics endpoint (admin-only).
+// Scrape with: GET /api/v1/metrics  Authorization: Bearer <ADMIN_API_KEY>
+router.get("/metrics", requireAdminApiKey, async (_req, res) => {
+  res.set("Content-Type", registry.contentType);
+  res.end(await registry.metrics());
+});
 
 // API routes
 router.use("/auth", authRoutes);
@@ -74,6 +106,10 @@ router.use("/government", governmentFundsRoutes);
 router.use("/investment", investmentRoutes);
 router.use("/fiat", fiatRoutes);
 router.use("/config", configRoutes);
+router.use("/kyc", kycRoutes);
+router.use("/kyc", kycValidatorRewardRoutes);
 router.use("/webhooks", webhookRoutes);
+router.use("/compliance", complianceRoutes);
+router.use("/admin/weight-drift-audits", weightDriftAuditRoutes);
 
 export default router;

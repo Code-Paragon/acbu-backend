@@ -74,7 +74,7 @@ export async function fetchAndStoreRates(): Promise<void> {
       centralBankRate = await fetchCentralBankRateUsd(currency);
 
       try {
-        const fintech = fintechRouter.getProvider(currency);
+        const fintech = await fintechRouter.getProvider(currency);
         // Only call if it's not the simulated provider to avoid circular dependency
         // (simulated provider depends on oracleRates being already in DB)
         if (!(fintech instanceof SimulatedFintechProvider)) {

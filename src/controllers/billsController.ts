@@ -84,8 +84,9 @@ export async function postBillsPay(
     });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      next(new AppError(e.errors.map((err) => err.message).join("; "), 400));
-      return;
+      return next(
+        new AppError("Validation error", 400, "VALIDATION_ERROR", e.flatten()),
+      );
     }
     next(e);
   }
@@ -120,8 +121,9 @@ export async function postBillsRefund(
     });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      next(new AppError(e.errors.map((err) => err.message).join("; "), 400));
-      return;
+      return next(
+        new AppError("Validation error", 400, "VALIDATION_ERROR", e.flatten()),
+      );
     }
     next(e);
   }

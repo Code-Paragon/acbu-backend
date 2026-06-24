@@ -5,8 +5,10 @@ import { Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "../config/database";
 import { AuthRequest } from "../middleware/auth";
+import { AppError } from "../middleware/errorHandler";
+import { encodeCursor, decodeCursor } from "../middleware/pagination";
 
-const listTransactionsQuerySchema = z.object({
+export const listTransactionsQuerySchema = z.object({
   limit: z
     .string()
     .optional()
@@ -28,17 +30,21 @@ export async function listMyTransactions(
   try {
     const userId = req.apiKey?.userId;
     if (!userId) {
-      res.status(401).json({ error: "User-scoped API key required" });
-      return;
+      throw new AppError("User-scoped API key required", 401, "UNAUTHORIZED");
     }
 
     const query = listTransactionsQuerySchema.safeParse(req.query);
     if (!query.success) {
-      const msg = query.error.errors.map((x) => x.message).join("; ");
-      res.status(400).json({ error: msg });
-      return;
+      throw new AppError(
+        "Invalid query parameters",
+        400,
+        "VALIDATION_ERROR",
+        query.error.flatten(),
+      );
     }
     const { limit, cursor } = query.data;
+    // Decode the opaque, scope-bound cursor; rejects forged/cross-user cursors (#405).
+    const cursorId = decodeCursor(cursor, userId);
 
     const list = await prisma.transaction.findMany({
       where: {
@@ -47,7 +53,7 @@ export async function listMyTransactions(
       },
       orderBy: { createdAt: "desc" },
       take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
       select: {
         id: true,
         type: true,
@@ -68,7 +74,7 @@ export async function listMyTransactions(
 
     const hasMore = list.length > limit;
     const page = hasMore ? list.slice(0, limit) : list;
-    const nextCursor = hasMore ? page[page.length - 1].id : null;
+    const nextCursor = hasMore ? encodeCursor(page[page.length - 1].id, userId) : null;
 
     const items = page.map((t: (typeof page)[number]) => ({
       transaction_id: t.id,
@@ -104,12 +110,10 @@ export async function getTransactionById(
       where: { id },
     });
     if (!tx) {
-      res.status(404).json({ error: "Transaction not found" });
-      return;
+      throw new AppError("Transaction not found", 404, "NOT_FOUND");
     }
     if (req.apiKey?.userId && tx.userId && tx.userId !== req.apiKey.userId) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
+      throw new AppError("Forbidden", 403, "FORBIDDEN");
     }
     res.status(200).json({
       transaction_id: tx.id,

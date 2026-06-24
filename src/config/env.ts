@@ -1,60 +1,126 @@
 import dotenv from "dotenv";
+import { z } from "zod";
+import { parseCorsOrigins } from "./corsOrigins";
 
 dotenv.config();
 
-// ── Validate required env vars BEFORE building config ────────────────────────
-// This ensures the app fails fast with a clear message instead of starting
-// with empty strings and failing later in an unpredictable way.
-const requiredEnvVars = [
-  "DATABASE_URL",
-  "MONGODB_URI",
-  "RABBITMQ_URL",
-  "JWT_SECRET",
-];
+const envSchema = z.object({
+  NODE_ENV: z.string().default("development"),
+  PORT: z.coerce.number().default(5000),
+  API_VERSION: z.string().default("v1"),
+  DATABASE_URL: z.string().min(1),
+  DATABASE_URL_REPLICA: z.string().optional(),
+  MONGODB_URI: z.string().min(1),
+  RABBITMQ_URL: z.string().min(1),
+  JWT_SECRET: z.string().min(1),
+  CHALLENGE_TOKEN_SECRET: z.string().optional(),
+  PRISMA_ACCELERATE_URL: z.string().optional(),
+  JWT_EXPIRES_IN: z.string().default("7d"),
+  JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().default(30),
+  API_KEY_SALT: z.string().default(""),
+  ADMIN_API_KEY: z.string().optional(),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
+  AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(10),
+  MAX_SIGNIN_ATTEMPTS: z.coerce.number().default(5),
+  SIGNIN_LOCKOUT_DURATION_MS: z.coerce.number().default(15 * 60 * 1000),
+  PII_ENCRYPTION_KEY: z
+    .string()
+    .length(64, "PII_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)")
+    .regex(/^[0-9a-fA-F]+$/, "PII_ENCRYPTION_KEY must be a hex string")
+    .optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_ORG_MONTHLY_BUDGET_USD: z.coerce.number().default(50),
+  OPENAI_MAX_TOKENS_PER_REQUEST: z.coerce.number().default(2000),
+  LOG_LEVEL: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
+    .default("info"),
+  CORS_ORIGIN: z.string().optional(),
 
-if (process.env.NODE_ENV === "production") {
-  requiredEnvVars.push("PRISMA_ACCELERATE_URL");
+  // B-063: Fail-open controls for OpenAI degradation scenarios.
+  OPENAI_FAIL_OPEN_ENABLED: z.string().default("true"),
+  OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().default(2000),
+  OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().default(2),
+  OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().default(500),
+
+  // #402: Startup database connection retry with exponential backoff + jitter.
+  // Jitter de-synchronises reconnecting instances to avoid a thundering herd on
+  // the database connection slots after a shared outage/crash.
+  DB_CONNECT_MAX_RETRIES: z.coerce.number().int().min(1).default(8),
+  DB_CONNECT_BASE_BACKOFF_MS: z.coerce.number().int().min(1).default(250),
+  DB_CONNECT_MAX_BACKOFF_MS: z.coerce.number().int().min(1).default(10000),
+});
+
+const parsed = envSchema.safeParse(process.env);
+
+if (!parsed.success) {
+  const messages = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n");
+  throw new Error(`Invalid environment variables:\n${messages}`);
 }
 
-const missing = requiredEnvVars.filter((v) => !process.env[v]);
-if (missing.length > 0) {
-  throw new Error(
-    `Missing required environment variable(s): ${missing.join(", ")}`,
-  );
+if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL) {
+  throw new Error("Missing required environment variable: PRISMA_ACCELERATE_URL");
 }
+
+// #382: Fintech partner keys must never be absent in production — an empty
+// Authorization header would be silently accepted by axios and only fail at
+// the first live API call, making the error hard to trace.  Fail at boot
+// instead so a misconfigured deployment is caught before it reaches traffic.
+if (parsed.data.NODE_ENV === "production") {
+  const missingFintechKeys: string[] = [];
+  if (!process.env.FLUTTERWAVE_SECRET_KEY) missingFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
+  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET) missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
+  if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
+  if (missingFintechKeys.length > 0) {
+    throw new Error(
+      `Missing required fintech API keys in production: ${missingFintechKeys.join(", ")}. ` +
+        "Inject these via environment variables — never commit them to source control. " +
+        "Rotate any key that may have been exposed before redeploying.",
+    );
+  }
+}
+
+const env = parsed.data;
 
 export const config = {
-  // Server
-  nodeEnv: process.env.NODE_ENV || "development",
-  port: parseInt(process.env.PORT || "5000", 10),
-  apiVersion: process.env.API_VERSION || "v1",
+  nodeEnv: env.NODE_ENV,
+  port: env.PORT,
+  apiVersion: env.API_VERSION,
+  databaseUrl: env.DATABASE_URL,
+  databaseUrlReplica: env.DATABASE_URL_REPLICA,
+  prismaAccelerateUrl: env.PRISMA_ACCELERATE_URL,
+  mongodbUri: env.MONGODB_URI,
+  rabbitmqUrl: env.RABBITMQ_URL,
+  jwtSecret: env.JWT_SECRET,
+  challengeTokenSecret: env.CHALLENGE_TOKEN_SECRET || env.JWT_SECRET,
+  jwtExpiresIn: env.JWT_EXPIRES_IN,
+  jwtClockToleranceSeconds: env.JWT_CLOCK_TOLERANCE_SECONDS,
+  apiKeySalt: env.API_KEY_SALT,
+  adminApiKey: env.ADMIN_API_KEY,
+  rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
+  rateLimitMaxRequests: env.RATE_LIMIT_MAX_REQUESTS,
+  authRateLimitWindowMs: env.AUTH_RATE_LIMIT_WINDOW_MS,
+  authRateLimitMaxRequests: env.AUTH_RATE_LIMIT_MAX_REQUESTS,
+  maxSigninAttempts: env.MAX_SIGNIN_ATTEMPTS,
+  signinLockoutDurationMs: env.SIGNIN_LOCKOUT_DURATION_MS,
 
-  // Database
-  databaseUrl: process.env.DATABASE_URL || "",
-  prismaAccelerateUrl: process.env.PRISMA_ACCELERATE_URL || "",
-
-  // MongoDB
-  mongodbUri: process.env.MONGODB_URI || "",
-
-  // RabbitMQ
-  rabbitmqUrl: process.env.RABBITMQ_URL || "",
-
-  // JWT
-  jwtSecret: process.env.JWT_SECRET || "",
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
-
-  // API Security
-  apiKeySalt: process.env.API_KEY_SALT || "",
-
-  // Rate Limiting
-  rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "60000", 10),
-  rateLimitMaxRequests: parseInt(
-    process.env.RATE_LIMIT_MAX_REQUESTS || "100",
+  // Rate Limiting Fallback (during cache outages)
+  rateLimitFallbackMaxRequests: parseInt(process.env.RATE_LIMIT_FALLBACK_MAX_REQUESTS || "20", 10),
+  rateLimitCircuitBreakerThreshold: parseInt(
+    process.env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD || "5",
+    10,
+  ),
+  rateLimitCircuitBreakerCooldownMs: parseInt(
+    process.env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS || "60000",
     10,
   ),
 
   // Logging
-  logLevel: process.env.LOG_LEVEL || "info",
+  logLevel: env.LOG_LEVEL,
   logFile: process.env.LOG_FILE || "logs/app.log",
 
   // Fintech APIs
@@ -63,8 +129,7 @@ export const config = {
     secretKey: process.env.FLUTTERWAVE_SECRET_KEY || "",
     encryptionKey: process.env.FLUTTERWAVE_ENCRYPTION_KEY || "",
     webhookSecret: process.env.FLUTTERWAVE_WEBHOOK_SECRET || "",
-    baseUrl:
-      process.env.FLUTTERWAVE_BASE_URL || "https://api.flutterwave.com/v3",
+    baseUrl: process.env.FLUTTERWAVE_BASE_URL || "https://api.flutterwave.com/v3",
   },
   paystack: {
     secretKey: process.env.PAYSTACK_SECRET_KEY || "",
@@ -80,16 +145,24 @@ export const config = {
         ? "https://momodeveloper.mtn.com"
         : "https://sandbox.momodeveloper.mtn.com"),
     targetEnvironment:
-      (process.env.MTN_MOMO_TARGET_ENVIRONMENT as "sandbox" | "production") ||
-      "sandbox",
+      (process.env.MTN_MOMO_TARGET_ENVIRONMENT as "sandbox" | "production") || "sandbox",
+  },
+  s3: {
+    region: process.env.AWS_REGION || process.env.S3_REGION || "us-east-1",
+    bucket: process.env.S3_BUCKET || "",
+    endpoint: process.env.S3_ENDPOINT || "",
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || "",
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || "",
+    uploadUrlTtlSeconds: parseInt(process.env.S3_UPLOAD_URL_TTL_SECONDS || "900", 10),
+    downloadUrlTtlSeconds: parseInt(process.env.S3_DOWNLOAD_URL_TTL_SECONDS || "300", 10),
+    scanWebhookSecret: process.env.S3_SCAN_WEBHOOK_SECRET || "",
   },
   fintech: {
     currencyProviders: ((): Record<string, string> => {
       const raw = process.env.FINTECH_CURRENCY_PROVIDERS;
       if (raw) {
         try {
-          if (raw.startsWith("{"))
-            return JSON.parse(raw) as Record<string, string>;
+          if (raw.startsWith("{")) return JSON.parse(raw) as Record<string, string>;
           return Object.fromEntries(
             raw.split(",").map((p) => {
               const [k, v] = p.split("=").map((s) => s.trim());
@@ -118,8 +191,7 @@ export const config = {
   // Stellar
   stellar: {
     network: process.env.STELLAR_NETWORK || "testnet",
-    horizonUrl:
-      process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org",
+    horizonUrl: process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org",
     /** Soroban RPC (simulate + send). Override if default host fails DNS (e.g. use SDF friendbot list / custom RPC). */
     sorobanRpcUrl: ((): string => {
       const explicit = process.env.STELLAR_SOROBAN_RPC_URL?.trim();
@@ -138,16 +210,13 @@ export const config = {
     nativeAssetCode: ((): string => {
       const explicit = process.env.STELLAR_NATIVE_ASSET_CODE?.trim();
       if (explicit) return explicit.toUpperCase();
-      const bootstrapProfile = (
-        process.env.TESTNET_CUSTODIAL_BOOTSTRAP || ""
-      ).trim()
-        .toLowerCase();
+      const bootstrapProfile = (process.env.TESTNET_CUSTODIAL_BOOTSTRAP || "").trim().toLowerCase();
       return bootstrapProfile.includes("pi") ? "PI" : "XLM";
     })(),
     /** Wallet activation strategy. Default keeps the current create-account path, but makes it explicit/configurable. */
-    activationStrategy: (
-      process.env.WALLET_ACTIVATION_STRATEGY || "create_account_native"
-    ) as "create_account_native" | "disabled",
+    activationStrategy: (process.env.WALLET_ACTIVATION_STRATEGY || "create_account_native") as
+      | "create_account_native"
+      | "disabled",
     /** Optional bootstrap profile from deployment docs/runbooks; used only for config alignment and diagnostics. */
     bootstrapProfile: process.env.TESTNET_CUSTODIAL_BOOTSTRAP || "",
     /** Minimum network-native balance sent to user wallet for activation. */
@@ -175,14 +244,16 @@ export const config = {
     baseFeeStroops: parseInt(process.env.STELLAR_BASE_FEE_STROOPS || "100", 10),
     /** When true, fetches the current recommended base fee from Horizon before each transaction. Falls back to baseFeeStroops on failure. */
     useDynamicFees: process.env.STELLAR_USE_DYNAMIC_FEES === "true",
+    /** Maximum total fee per Soroban transaction in stroops (base + resource fees). Default 10M stroops (~50 XLM at base fee 100). */
+    sorobanMaxFeeStroops: parseInt(process.env.STELLAR_SOROBAN_MAX_FEE_STROOPS || "10000000", 10),
+    /** Minimum total fee per Soroban transaction in stroops to prevent underpricing. Default 5000 stroops. */
+    sorobanMinFeeStroops: parseInt(process.env.STELLAR_SOROBAN_MIN_FEE_STROOPS || "5000", 10),
     /** Circle USDC issuer on Stellar testnet. Default is the well-known Circle testnet issuer. */
     usdcIssuerTestnet:
-      process.env.USDC_ISSUER_TESTNET ??
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      process.env.USDC_ISSUER_TESTNET ?? "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
     /** Circle USDC issuer on Stellar mainnet. Default is the well-known Circle mainnet issuer. */
     usdcIssuerMainnet:
-      process.env.USDC_ISSUER_MAINNET ??
-      "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      process.env.USDC_ISSUER_MAINNET ?? "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
     /** Stellar asset code for the USDC-like swap asset on testnet (4–12 alphanumeric). Default `USDC`. */
     usdcAssetCodeTestnet: process.env.USDC_ASSET_CODE_TESTNET || "USDC",
     /** Stellar asset code for the USDC-like swap asset on mainnet. Default `USDC`. */
@@ -193,23 +264,12 @@ export const config = {
 
   // Oracle (40/40/20: central bank, fintech, forex)
   oracle: {
-    updateIntervalHours: parseInt(
-      process.env.ORACLE_UPDATE_INTERVAL_HOURS || "6",
-      10,
-    ),
-    emergencyThreshold: parseFloat(
-      process.env.ORACLE_EMERGENCY_THRESHOLD || "0.05",
-    ),
-    maxDeviationPerUpdate: parseFloat(
-      process.env.ORACLE_MAX_DEVIATION_PER_UPDATE || "0.05",
-    ),
-    circuitBreakerThreshold: parseFloat(
-      process.env.ORACLE_CIRCUIT_BREAKER_THRESHOLD || "0.10",
-    ),
+    updateIntervalHours: parseInt(process.env.ORACLE_UPDATE_INTERVAL_HOURS || "6", 10),
+    emergencyThreshold: parseFloat(process.env.ORACLE_EMERGENCY_THRESHOLD || "0.05"),
+    maxDeviationPerUpdate: parseFloat(process.env.ORACLE_MAX_DEVIATION_PER_UPDATE || "0.05"),
+    circuitBreakerThreshold: parseFloat(process.env.ORACLE_CIRCUIT_BREAKER_THRESHOLD || "0.10"),
     forex: {
-      baseUrl:
-        process.env.EXCHANGERATE_API_BASE_URL ||
-        "https://v6.exchangerate-api.com/v6",
+      baseUrl: process.env.EXCHANGERATE_API_BASE_URL || "https://v6.exchangerate-api.com/v6",
       apiKey: process.env.EXCHANGERATE_API_KEY || "",
     },
     centralBankUrls: ((): Record<string, string> => {
@@ -234,15 +294,12 @@ export const config = {
 
   // Notifications (email / SMS)
   notification: {
-    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as
-      | "sendgrid"
-      | "ses"
-      | "log",
-    emailFrom:
-      process.env.NOTIFICATION_FROM_EMAIL || "noreply@acbu.example.com",
+    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as "sendgrid" | "ses" | "log",
+    emailFrom: process.env.NOTIFICATION_FROM_EMAIL || "noreply@acbu.io",
     sendgridApiKey: process.env.SENDGRID_API_KEY || "",
-    sesRegion:
-      process.env.AWS_REGION || process.env.AWS_SES_REGION || "us-east-1",
+    sesRegion: process.env.AWS_REGION || process.env.AWS_SES_REGION || "us-east-1",
+    sesAccessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
+    sesSecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
     smsProvider: (process.env.NOTIFICATION_SMS_PROVIDER || "log") as
       | "twilio"
       | "africas_talking"
@@ -264,14 +321,8 @@ export const config = {
   // Limits
   limits: {
     retail: {
-      depositDailyUsd: parseInt(
-        process.env.LIMIT_RETAIL_DEPOSIT_DAILY_USD || "5000",
-        10,
-      ),
-      depositMonthlyUsd: parseInt(
-        process.env.LIMIT_RETAIL_DEPOSIT_MONTHLY_USD || "50000",
-        10,
-      ),
+      depositDailyUsd: parseInt(process.env.LIMIT_RETAIL_DEPOSIT_DAILY_USD || "5000", 10),
+      depositMonthlyUsd: parseInt(process.env.LIMIT_RETAIL_DEPOSIT_MONTHLY_USD || "50000", 10),
       withdrawalSingleCurrencyDailyUsd: parseInt(
         process.env.LIMIT_RETAIL_WITHDRAWAL_DAILY_USD || "10000",
         10,
@@ -282,14 +333,8 @@ export const config = {
       ),
     },
     business: {
-      depositDailyUsd: parseInt(
-        process.env.LIMIT_BUSINESS_DEPOSIT_DAILY_USD || "50000",
-        10,
-      ),
-      depositMonthlyUsd: parseInt(
-        process.env.LIMIT_BUSINESS_DEPOSIT_MONTHLY_USD || "500000",
-        10,
-      ),
+      depositDailyUsd: parseInt(process.env.LIMIT_BUSINESS_DEPOSIT_DAILY_USD || "50000", 10),
+      depositMonthlyUsd: parseInt(process.env.LIMIT_BUSINESS_DEPOSIT_MONTHLY_USD || "500000", 10),
       withdrawalSingleCurrencyDailyUsd: parseInt(
         process.env.LIMIT_BUSINESS_WITHDRAWAL_DAILY_USD || "100000",
         10,
@@ -300,14 +345,8 @@ export const config = {
       ),
     },
     government: {
-      depositDailyUsd: parseInt(
-        process.env.LIMIT_GOV_DEPOSIT_DAILY_USD || "500000",
-        10,
-      ),
-      depositMonthlyUsd: parseInt(
-        process.env.LIMIT_GOV_DEPOSIT_MONTHLY_USD || "5000000",
-        10,
-      ),
+      depositDailyUsd: parseInt(process.env.LIMIT_GOV_DEPOSIT_DAILY_USD || "500000", 10),
+      depositMonthlyUsd: parseInt(process.env.LIMIT_GOV_DEPOSIT_MONTHLY_USD || "5000000", 10),
       withdrawalSingleCurrencyDailyUsd: parseInt(
         process.env.LIMIT_GOV_WITHDRAWAL_DAILY_USD || "500000",
         10,
@@ -321,12 +360,39 @@ export const config = {
       reserveWeightThresholdPct: parseFloat(
         process.env.LIMIT_CIRCUIT_BREAKER_RESERVE_WEIGHT_PCT || "10",
       ),
-      minReserveRatio: parseFloat(
-        process.env.LIMIT_CIRCUIT_BREAKER_MIN_RATIO || "1.02",
-      ),
+      minReserveRatio: parseFloat(process.env.LIMIT_CIRCUIT_BREAKER_MIN_RATIO || "1.02"),
     },
   },
 
-  // CORS
-  corsOrigin: process.env.CORS_ORIGIN?.split(",") || ["*"],
+  // Auth Security
+  auth: {
+    bruteMaxAttempts: parseInt(process.env.AUTH_BRUTE_MAX_ATTEMPTS || "5", 10),
+    bruteLockoutMs: parseInt(process.env.AUTH_BRUTE_LOCKOUT_MS || "900000", 10), // 15 mins
+    captchaSecret: process.env.CAPTCHA_SECRET || "",
+  },
+
+  openai: {
+    apiKey: env.OPENAI_API_KEY || "",
+    orgMonthlyBudgetUsd: env.OPENAI_ORG_MONTHLY_BUDGET_USD,
+    maxTokensPerRequest: env.OPENAI_MAX_TOKENS_PER_REQUEST,
+    // Fail-open behaviour: if true, downstream callers will be allowed to continue
+    // when the OpenAI service is degraded (timeouts, rate limits, network issues).
+    failOpenEnabled: env.OPENAI_FAIL_OPEN_ENABLED === "true",
+    failOpenTimeoutMs: env.OPENAI_FAIL_OPEN_TIMEOUT_MS,
+    failOpenMaxRetries: env.OPENAI_FAIL_OPEN_MAX_RETRIES,
+    failOpenRetryBaseMs: env.OPENAI_FAIL_OPEN_RETRY_BASE_MS,
+  },
+
+  // PII encryption key for KYC and sensitive field encryption
+  piiEncryptionKey: env.PII_ENCRYPTION_KEY,
+
+  // Startup database connection retry (#402)
+  database: {
+    connectMaxRetries: env.DB_CONNECT_MAX_RETRIES,
+    connectBaseBackoffMs: env.DB_CONNECT_BASE_BACKOFF_MS,
+    connectMaxBackoffMs: env.DB_CONNECT_MAX_BACKOFF_MS,
+  },
+
+  // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)
+  corsOrigin: parseCorsOrigins(env.CORS_ORIGIN, env.NODE_ENV),
 };

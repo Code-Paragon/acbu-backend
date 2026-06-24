@@ -12,6 +12,7 @@ import {
   QUEUES,
   assertQueueWithDLQ,
 } from "../config/rabbitmq";
+import { getQueueMaxRetries } from "./queueConfig";
 import { logger } from "../config/logger";
 import { prisma } from "../config/database";
 import { mintFromUsdcInternal } from "../controllers/mintController";
@@ -19,6 +20,7 @@ import { swapUsdcToXlm } from "../services/stellar/usdcSwap";
 import { Decimal } from "@prisma/client/runtime/library";
 
 const QUEUE = QUEUES.USDC_CONVERT_AND_MINT;
+const MAX_RETRIES = getQueueMaxRetries(QUEUE);
 
 export interface UsdcConvertAndMintPayload {
   onRampSwapId: string;
@@ -32,6 +34,10 @@ export async function startUsdcConvertAndMintConsumer(): Promise<void> {
     QUEUE,
     async (msg: ConsumeMessage | null) => {
       if (!msg) return;
+
+      const headers = msg.properties.headers ?? {};
+      const retries = typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
+
       try {
         const body = JSON.parse(
           msg.content.toString(),
@@ -40,7 +46,35 @@ export async function startUsdcConvertAndMintConsumer(): Promise<void> {
         ch.ack(msg);
       } catch (e) {
         logger.error("USDC convert-and-mint job failed", { error: e });
-        ch.nack(msg, false, true);
+
+        // Safely extract onRampSwapId for logging
+        let onRampSwapId: string | null = null;
+        try {
+          const payload = JSON.parse(msg.content.toString()) as UsdcConvertAndMintPayload;
+          onRampSwapId = payload.onRampSwapId;
+        } catch {
+          // ignore parse error, already logged
+        }
+
+        if (retries >= MAX_RETRIES) {
+          logger.error("USDC convert-and-mint job failed permanently, sending to DLQ", {
+            onRampSwapId,
+            retries,
+          });
+          // send to DLQ by nacking without requeue
+          ch.nack(msg, false, false);
+          return;
+        }
+
+        // retry with incremented header
+        ch.sendToQueue(QUEUE, msg.content, {
+          persistent: true,
+          headers: {
+            ...headers,
+            "x-retries": retries + 1,
+          },
+        });
+        ch.ack(msg);
       }
     },
     { noAck: false },
@@ -52,29 +86,37 @@ export async function processUsdcConvertAndMint(
   payload: UsdcConvertAndMintPayload,
 ): Promise<void> {
   const { onRampSwapId } = payload;
-  const swap = await prisma.onRampSwap.findUnique({
-    where: { id: onRampSwapId },
+  // Atomically claim the swap: only one worker wins when status=pending_convert.
+  // updateMany returns { count: 0 } if another worker already transitioned it.
+  const claimed = await prisma.onRampSwap.updateMany({
+    where: { id: onRampSwapId, status: "pending_convert", source: "usdc_deposit" },
+    data: { status: "processing" },
   });
-  if (
-    !swap ||
-    swap.source !== "usdc_deposit" ||
-    swap.status !== "pending_convert"
-  ) {
-    logger.warn("OnRampSwap not found or not a pending USDC deposit", {
-      onRampSwapId,
-    });
-    return;
-  }
-  const usdcAmount = swap.usdcAmount ? Number(swap.usdcAmount) : 0;
-  if (usdcAmount <= 0) {
-    logger.warn("OnRampSwap has no usdcAmount", { onRampSwapId });
+  if (claimed.count === 0) {
+    logger.warn(
+      "OnRampSwap not found, not a pending USDC deposit, or already claimed by another worker",
+      { onRampSwapId },
+    );
     return;
   }
 
-  await prisma.onRampSwap.update({
+  const swap = await prisma.onRampSwap.findUnique({
     where: { id: onRampSwapId },
-    data: { status: "processing" },
   });
+  if (!swap) {
+    logger.error("OnRampSwap disappeared after atomic claim", { onRampSwapId });
+    return;
+  }
+
+  const usdcAmount = swap.usdcAmount ? Number(swap.usdcAmount) : 0;
+  if (usdcAmount <= 0) {
+    logger.warn("OnRampSwap has no usdcAmount", { onRampSwapId });
+    await prisma.onRampSwap.update({
+      where: { id: onRampSwapId },
+      data: { status: "failed" },
+    });
+    return;
+  }
 
   try {
     // ── Step 1: swap USDC→XLM on the Stellar DEX ────────────────────────────

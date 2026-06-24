@@ -4,34 +4,19 @@
  */
 import { Response, NextFunction } from "express";
 import { z } from "zod";
+import crypto from "crypto";
 import { prisma } from "../config/database";
 import { AuthRequest } from "../middleware/auth";
 import { Decimal } from "@prisma/client/runtime/library";
 import { enqueueXlmToAcbu } from "../jobs/xlmToAcbuJob";
+import { Prisma } from "@prisma/client";
 import { AppError } from "../middleware/errorHandler";
 import { isValidStellarAddress } from "../utils/stellar";
+import { assertUserWalletAddress } from "../services/wallet/walletService";
+import { logFinancialEvent } from "../config/logger";
+import { extractIdempotencyKey } from "../utils/idempotency";
 
-async function assertUserWalletAddress(
-  userId: string,
-  providedAddress: string,
-): Promise<string> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { stellarAddress: true },
-  });
-
-  if (!user?.stellarAddress) {
-    throw new AppError("User wallet address not set", 400);
-  }
-
-  if (user.stellarAddress !== providedAddress) {
-    throw new AppError("Wallet address does not match user", 403);
-  }
-
-  return user.stellarAddress;
-}
-
-const bodySchema = z.object({
+export const bodySchema = z.object({
   stellar_address: z
     .string()
     .length(56)
@@ -72,27 +57,90 @@ export async function registerOnRampSwap(
     }
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) {
-      res
-        .status(400)
-        .json({ error: "Invalid request", details: parsed.error.flatten() });
-      return;
+      throw new AppError(
+        "Invalid request",
+        400,
+        "VALIDATION_ERROR",
+        parsed.error.flatten(),
+      );
     }
+
     const { stellar_address, xlm_amount, usdc_amount } = parsed.data;
     const userWalletAddress = await assertUserWalletAddress(
       userId,
       stellar_address,
     );
+
+    const idempotencyKey = extractIdempotencyKey(req);
+    if (idempotencyKey) {
+      const existingSwap = await prisma.onRampSwap.findFirst({
+        where: { idempotencyKey, userId },
+      });
+      if (existingSwap) {
+        res.status(202).json({
+          on_ramp_swap_id: existingSwap.id,
+          status: existingSwap.status,
+          message:
+            "XLM→ACBU job queued. ACBU will be minted to your wallet when processing completes.",
+        });
+        return;
+      }
+    }
+
     const xlmNum = Number(xlm_amount);
-    const swap = await prisma.onRampSwap.create({
-      data: {
-        userId,
-        stellarAddress: userWalletAddress,
-        source: "xlm_deposit",
-        xlmAmount: new Decimal(xlmNum),
-        usdcAmount:
-          usdc_amount != null ? new Decimal(Number(usdc_amount)) : null,
-        status: "pending_convert",
-      },
+    let swap;
+    try {
+      swap = await prisma.onRampSwap.create({
+        data: {
+          userId,
+          stellarAddress: userWalletAddress,
+          source: "xlm_deposit",
+          xlmAmount: new Decimal(xlmNum),
+          usdcAmount:
+            usdc_amount != null ? new Decimal(Number(usdc_amount)) : null,
+          status: "pending_convert",
+          idempotencyKey,
+        },
+      });
+    } catch (createError) {
+      if (
+        idempotencyKey &&
+        createError instanceof Prisma.PrismaClientKnownRequestError &&
+        createError.code === "P2002"
+      ) {
+        const existingSwap = await prisma.onRampSwap.findFirst({
+          where: { idempotencyKey, userId },
+        });
+        if (existingSwap) {
+          res.status(202).json({
+            on_ramp_swap_id: existingSwap.id,
+            status: existingSwap.status,
+            message:
+              "XLM→ACBU job queued. ACBU will be minted to your wallet when processing completes.",
+          });
+          return;
+        }
+      }
+      throw createError;
+    }
+    const correlationId =
+      (req.headers["x-request-id"] as string | undefined) ??
+      crypto.randomUUID();
+    logFinancialEvent({
+      event: "onramp.registered",
+      status: "pending",
+      transactionId: swap.id,
+      userId,
+      accountId: userWalletAddress,
+      idempotencyKey: swap.id,
+      amount: Math.round(xlmNum * 1e7), // XLM in stroops (7 decimal places)
+      currency: "XLM",
+      correlationId,
+      timestamp: new Date().toISOString(),
+      environment: (process.env.NODE_ENV ?? "development") as
+        | "production"
+        | "staging"
+        | "development",
     });
     await enqueueXlmToAcbu({
       onRampSwapId: swap.id,

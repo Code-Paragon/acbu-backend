@@ -58,6 +58,54 @@ describe("AuditService Reliability (RabbitMQ)", () => {
     );
   });
 
+  it("should reject publishing admin audit entries with missing attribution fields", async () => {
+    mockChannel.sendToQueue.mockReturnValue(true);
+
+    const appendFileSyncSpy = jest
+      .spyOn(fs, "appendFileSync")
+      .mockImplementation(() => {});
+    const existsSyncSpy = jest.spyOn(fs, "existsSync").mockReturnValue(true);
+
+    await expect(
+      logAudit({
+        eventType: "auth",
+        action: "admin_key_issued",
+        keyType: "ADMIN_KEY",
+        performedBy: "user-1",
+        actorType: "sme",
+        // organizationId and reason intentionally missing
+      }),
+    ).rejects.toThrow(
+      "Admin audit entries require performedBy, actorType, organizationId, and reason",
+    );
+
+    expect(mockChannel.sendToQueue).not.toHaveBeenCalled();
+    expect(appendFileSyncSpy).not.toHaveBeenCalled();
+
+    appendFileSyncSpy.mockRestore();
+    existsSyncSpy.mockRestore();
+  });
+
+  it("should publish admin audit entries when required attribution fields are present", async () => {
+    mockChannel.sendToQueue.mockReturnValue(true);
+
+    await logAudit({
+      eventType: "auth",
+      action: "admin_key_issued",
+      keyType: "ADMIN_KEY",
+      performedBy: "user-1",
+      actorType: "sme",
+      organizationId: "org-1",
+      reason: "Emergency access",
+    });
+
+    expect(mockChannel.sendToQueue).toHaveBeenCalledWith(
+      QUEUES.AUDIT_LOGS,
+      expect.any(Buffer),
+      { persistent: true },
+    );
+  });
+
   it("should fall back to file if publish fails (returns false)", async () => {
     mockChannel.sendToQueue.mockReturnValue(false);
 
@@ -72,8 +120,8 @@ describe("AuditService Reliability (RabbitMQ)", () => {
 
     await logAudit(entry);
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("RabbitMQ audit publish failed"),
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("Audit publish failed after 3 retries"),
       expect.anything(),
     );
     expect(appendFileSyncSpy).toHaveBeenCalled();
@@ -104,7 +152,11 @@ describe("AuditService Reliability (RabbitMQ)", () => {
     await logAudit(entry);
 
     expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining("CRITICAL: Audit logging failed"),
+      expect.stringContaining("Audit publish failed after 3 retries"),
+      expect.anything(),
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("CRITICAL: Audit outbox write failed"),
       expect.anything(),
     );
     expect(appendFileSyncSpy).toHaveBeenCalled();

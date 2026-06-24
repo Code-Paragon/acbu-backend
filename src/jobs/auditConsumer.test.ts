@@ -35,6 +35,7 @@ describe("AuditConsumer", () => {
     consume: jest.fn(),
     ack: jest.fn(),
     nack: jest.fn(),
+    prefetch: jest.fn(),
   };
 
   const entry = {
@@ -78,11 +79,11 @@ describe("AuditConsumer", () => {
   });
 
   it("should retry on database failure and eventually nack to DLQ", async () => {
-    ((prisma.auditTrail.create as jest.Mock).mockRejectedValue(
+    (prisma.auditTrail.create as jest.Mock).mockRejectedValue(
       new Error("DB connection failed"),
-    ),
-      // Fast forward timers for retry
-      jest.useFakeTimers());
+    );
+    // Fast forward timers for retry
+    jest.useFakeTimers();
 
     mockChannel.consume.mockImplementation((_queue, callback) => {
       callback(mockMsg);

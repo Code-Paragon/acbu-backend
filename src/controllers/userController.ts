@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { Response, NextFunction } from "express";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import * as StellarSdk from "@stellar/stellar-sdk";
@@ -40,7 +41,7 @@ function normalizeUsername(s: string): string {
   return s.trim().toLowerCase().replace(/\s/g, "");
 }
 
-const patchMeSchema = z.object({
+export const patchMeSchema = z.object({
   username: z.string().min(1).max(64).transform(normalizeUsername).optional(),
   email: z
     .string()
@@ -293,7 +294,7 @@ export async function deleteWallet(
   }
 }
 
-const addContactSchema = z.object({
+export const addContactSchema = z.object({
   contact_user_id: z.string().uuid(),
 });
 
@@ -395,7 +396,7 @@ export async function deleteContact(
   }
 }
 
-const addGuardianSchema = z
+export const addGuardianSchema = z
   .object({
     guardian_user_id: z.string().uuid().optional(),
     guardian_email: z.string().email().max(255).optional(),
@@ -542,7 +543,7 @@ export async function deleteGuardian(
 
 /**
  * DELETE /users/me
- * Delete account: revoke API keys, set Transaction.userId = null, then delete user.
+ * Delete account: performs a tombstone delete for GDPR compliance.
  */
 export async function deleteMe(
   req: AuthRequest,
@@ -552,21 +553,46 @@ export async function deleteMe(
   try {
     const userId = req.apiKey?.userId;
     if (!userId) throw new AppError("User-scoped API key required", 401);
-    await prisma.$transaction([
-      prisma.transaction.updateMany({
-        where: { userId },
-        data: { userId: null },
-      }),
-      prisma.apiKey.deleteMany({ where: { userId } }),
-      prisma.user.delete({ where: { id: userId } }),
-    ]);
+
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // 1. Delete associated sensitive records
+      await tx.apiKey.deleteMany({ where: { userId } });
+      await tx.otpChallenge.deleteMany({ where: { userId } });
+      await tx.userPasskey.deleteMany({ where: { userId } });
+      await tx.userContact.deleteMany({ where: { userId } });
+      await tx.userContact.deleteMany({ where: { contactUserId: userId } });
+      await tx.guardian.deleteMany({ where: { userId } });
+      await tx.guardian.deleteMany({ where: { guardianUserId: userId } });
+
+      // 2. Tombstone the User record
+      const tombstoneSuffix = crypto.randomUUID().substring(0, 8);
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          username: `deleted_${tombstoneSuffix}`,
+          email: null,
+          phoneE164: null,
+          stellarAddress: null,
+          kycStatus: "deleted",
+          encryptedStellarSecret: null,
+          keyEncryptionHint: null,
+          passcodeHash: null,
+          twoFaMethod: null,
+          totpSecretEncrypted: null,
+          privacyHideFromSearch: true,
+        },
+      });
+    });
+
+    logger.info("Account tombstone deleted (legacy endpoint)", { userId });
+
     res.status(204).send();
   } catch (e) {
     next(e);
   }
 }
 
-const walletConfirmSchema = z.object({
+export const walletConfirmSchema = z.object({
   encryption_method: z.enum(["passcode"]),
   passcode: z
     .string()
@@ -740,17 +766,13 @@ export async function getMeBalance(
       return;
     }
 
-    const server = new StellarSdk.Horizon.Server(
-      horizonUrl,
-    );
+    const server = new StellarSdk.Horizon.Server(horizonUrl);
 
     try {
       const account = await server.loadAccount(user.stellarAddress);
       const acbuBalance = account.balances.find((b: any) => {
         if (b.asset_type === "native") return false;
-        return (
-          b.asset_code === assetCode && b.asset_issuer === assetIssuer
-        );
+        return b.asset_code === assetCode && b.asset_issuer === assetIssuer;
       });
 
       const stellarNum = acbuBalance ? parseFloat(acbuBalance.balance) : 0;

@@ -1,14 +1,36 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../config/logger";
+import { ErrorCodes } from "../types/errorCodes";
 
 export class AppError extends Error {
   statusCode: number;
+  code: string;
   isOperational: boolean;
+  details?: unknown;
 
-  constructor(message: string, statusCode: number) {
+  constructor(
+    message: string,
+    statusCode: number,
+    codeOrDetails?: string | unknown,
+    details?: unknown,
+  ) {
     super(message);
     this.statusCode = statusCode;
+    const fallbackCode =
+      statusCode === 429
+        ? ErrorCodes.RATE_LIMIT_EXCEEDED
+        : statusCode >= 500
+          ? ErrorCodes.INTERNAL_ERROR
+          : ErrorCodes.BAD_REQUEST;
+
+    this.code =
+      typeof codeOrDetails === "string"
+        ? codeOrDetails
+        : fallbackCode;
+    this.details =
+      typeof codeOrDetails === "string" ? details : codeOrDetails;
     this.isOperational = true;
+    Object.setPrototypeOf(this, new.target.prototype);
     Error.captureStackTrace(this, this.constructor);
   }
 }
@@ -29,6 +51,19 @@ function sanitizeForLog(err: Error, req: Request) {
   };
 }
 
+function summarizeErrorDetails(details: unknown): unknown {
+  if (!details) return undefined;
+  if (typeof details === "string") return "REDACTED_STRING_DETAILS";
+  if (Array.isArray(details)) return { type: "array", count: details.length };
+  if (typeof details === "object") {
+    return {
+      type: "object",
+      keys: Object.keys(details as Record<string, unknown>).slice(0, 10),
+    };
+  }
+  return "REDACTED_NON_OBJECT_DETAILS";
+}
+
 export const errorHandler = (
   err: Error | AppError | SyntaxError,
   req: Request,
@@ -37,9 +72,14 @@ export const errorHandler = (
 ): void => {
   if (err instanceof SyntaxError && "body" in err) {
     logger.warn("JSON Parse Error", { message: err.message, path: req.path });
-    res
-      .status(400)
-      .json({ error: { message: "Invalid JSON payload", statusCode: 400 } });
+    res.status(400).json({
+      error: {
+        code: "INVALID_JSON",
+        error_code: "INVALID_JSON",
+        message: "Invalid JSON payload",
+        details: { message: err.message },
+      },
+    });
     return;
   }
 
@@ -47,14 +87,19 @@ export const errorHandler = (
     logger.error("Application error", {
       message: err.message,
       statusCode: err.statusCode,
+      code: err.code,
       path: req.path,
       method: req.method,
+      details: summarizeErrorDetails(err.details),
     });
 
     res.status(err.statusCode).json({
       error: {
+        code: err.code,
+        error_code: err.code,
         message: err.message,
         statusCode: err.statusCode,
+        ...(err.details ? { details: err.details } : {}),
       },
     });
     return;
@@ -65,8 +110,10 @@ export const errorHandler = (
 
   res.status(500).json({
     error: {
+      code: "INTERNAL_ERROR",
+      error_code: "INTERNAL_ERROR",
       message: "Internal server error",
-      statusCode: 500,
     },
   });
 };
+

@@ -2,10 +2,11 @@
  * Paystack API client (Nigeria/NGN). Implements FintechProvider for balance and disbursement.
  * FX (convertCurrency) delegates to Flutterwave; use getProviderById('flutterwave') for rate fallback.
  */
-import axios, { AxiosInstance } from "axios";
+import { AxiosInstance } from "axios";
 import { config } from "../../config/env";
 import { logger } from "../../config/logger";
-import { CircuitBreaker } from "../../utils/circuitBreaker"; // Import the class
+import { CircuitBreaker } from "../../utils/circuitBreaker";
+import { createHttpClient } from "../http/client";
 import type {
   FintechProvider,
   DisburseRecipient,
@@ -34,14 +35,12 @@ export class PaystackClient implements FintechProvider {
       options?.baseUrl ?? paystackConfig?.baseUrl ?? "https://api.paystack.co";
     this.fxFallback = options?.fxFallback ?? null;
     
-    this.client = axios.create({
+    this.client = createHttpClient({
       baseURL: baseUrl,
       headers: {
         Authorization: `Bearer ${secretKey}`,
         "Content-Type": "application/json",
       },
-      // REQUIREMENT 1: Lower the hard timeout from 30s to 5s so it fails fast
-      timeout: 5000,
     });
 
     // REQUIREMENT 2: Create an isolated circuit breaker for Paystack
@@ -53,37 +52,20 @@ export class PaystackClient implements FintechProvider {
   }
 
   /**
-   * Helper method to execute requests safely through the circuit breaker with a simple retry strategy
+   * Execute a request through the circuit breaker.
+   * Retry-After-aware retries are handled by the shared HTTP client interceptor.
    */
-  private async requestWrapper<T>(requestFn: () => Promise<T>, retries = 2): Promise<T> {
+  private async requestWrapper<T>(requestFn: () => Promise<T>): Promise<T> {
     if (!this.breaker.canExecute()) {
       throw new Error("Paystack service is temporarily unavailable (Circuit Open)");
     }
-
     try {
-      let attempt = 0;
-      while (attempt <= retries) {
-        try {
-          const result = await requestFn();
-          this.breaker.recordSuccess();
-          return result;
-        } catch (error: any) {
-          attempt++;
-          const isNetworkError = !error.response;
-          const isServerError = error.response?.status >= 500;
-          
-          if (attempt > retries || (!isNetworkError && !isServerError)) {
-            throw error;
-          }
-          
-          // Exponential backoff delay
-          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
-        }
-      }
-      throw new Error("Request failed after maximum retries");
-    } catch (finalError) {
+      const result = await requestFn();
+      this.breaker.recordSuccess();
+      return result;
+    } catch (error) {
       this.breaker.recordFailure();
-      throw finalError;
+      throw error;
     }
   }
 

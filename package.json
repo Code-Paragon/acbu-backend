@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "description": "ACBU Backend API Server",
   "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "prisma/schema.prisma",
+    "prisma/migrations/",
+    "README.md"
+  ],
   "scripts": {
     "dev": "nodemon",
     "build": "tsc -p tsconfig.build.json",
@@ -22,7 +28,8 @@
     "backfill:org-limits": "ts-node prisma/backfillOrgTransactionContext.ts",
     "stellar:create-wallet": "ts-node scripts/create-stellar-wallet.ts",
     "compute:basket-weights": "ts-node scripts/compute-basket-weights.ts",
-    "postinstall": "prisma generate && tsc -p tsconfig.build.json"
+    "postinstall": "prisma generate && tsc -p tsconfig.build.json",
+    "package:preview": "npm pack --dry-run"
   },
   "keywords": [
     "acbu",

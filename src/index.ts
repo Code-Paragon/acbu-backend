@@ -25,6 +25,10 @@ const MAX_REQUEST_BODY_SIZE = "1mb";
 // Security middleware
 app.use(
   helmet({
+    // Enable DNS prefetch when a CDN is configured so browsers can resolve
+    // the CDN domain early, avoiding extra round-trip latency on every load.
+    // When no CDN is in use, keep it off (default) to prevent information leakage.
+    dnsPrefetchControl: { allow: !!config.cdnUrl },
     hsts: {
       maxAge: 31536000,
       includeSubDomains: true,

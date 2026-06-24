@@ -8,6 +8,12 @@
   },
   "description": "ACBU Backend API Server",
   "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "prisma/schema.prisma",
+    "prisma/migrations/",
+    "README.md"
+  ],
   "scripts": {
     "dev": "nodemon",
     "build": "tsc -p tsconfig.build.json",

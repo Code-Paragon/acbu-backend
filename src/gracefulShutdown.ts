@@ -2,12 +2,18 @@ import { type Server } from "http";
 import { logger } from "./config/logger";
 import { disconnectMongoDB } from "./config/mongodb";
 import { disconnectRabbitMQ } from "./config/rabbitmq";
+import { stopMemoryMonitor } from "./utils/memoryMonitor";
 
 type AppServer = Server & { closeIdleConnections?: () => void };
 let httpServer: AppServer | null = null;
+let memoryMonitorHandle: NodeJS.Timeout | null = null;
 
 export const setHttpServer = (server: AppServer | null): void => {
   httpServer = server;
+};
+
+export const setMemoryMonitorHandle = (handle: NodeJS.Timeout): void => {
+  memoryMonitorHandle = handle;
 };
 
 const closeServer = async (): Promise<void> => {
@@ -38,6 +44,7 @@ const closeServer = async (): Promise<void> => {
 
 export const shutdown = async (): Promise<void> => {
   logger.info("Shutting down gracefully...");
+  if (memoryMonitorHandle) stopMemoryMonitor(memoryMonitorHandle);
   await closeServer();
   await disconnectMongoDB();
   await disconnectRabbitMQ();

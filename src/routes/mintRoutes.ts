@@ -78,6 +78,9 @@ router.post("/usdc", mintFromUsdc);
  *                 type: string
  *               wallet_address:
  *                 type: string
+ *               idempotency_key:
+ *                 type: string
+ *                 description: Optional idempotency key for safe retry of deposit requests
  *     responses:
  *       202:
  *         description: Deposit request accepted

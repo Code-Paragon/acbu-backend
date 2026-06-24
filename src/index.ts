@@ -21,6 +21,7 @@ import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
+import { validateContentLength } from "./middleware/bodyParser";
 import { requestLogger } from "./middleware/logger";
 import { requestMetricsMiddleware } from "./middleware/metrics";
 import { errorHandler, AppError } from "./middleware/errorHandler";
@@ -57,6 +58,8 @@ app.use(corsMiddleware);
 // Compress all JSON/text responses to reduce bandwidth on large payloads
 app.use(compression());
 
+// Validate Content-Length against actual body size before parsing (#449)
+app.use(validateContentLength);
 app.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
 
 // ── Webhook Content-Type validation ────────────────────────────────────────────

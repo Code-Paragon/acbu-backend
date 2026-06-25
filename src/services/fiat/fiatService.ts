@@ -106,6 +106,7 @@ export async function getBankAccounts(
         localAmount: { not: null },
         rateSnapshot: { path: ["source"], equals: "admin_drip_demo_fiat" },
       },
+      take: 1_000, // #437: cap per-user faucet rows
       select: {
         localCurrency: true,
         localAmount: true,

@@ -61,7 +61,26 @@ function validateRequestContentEncoding(req: Request, _res: Response, next: Next
 }
 
 // Security middleware
-app.use(securityHeadersMiddleware);
+app.use(
+  helmet({
+    // Enable DNS prefetch when a CDN is configured so browsers can resolve
+    // the CDN domain early, avoiding extra round-trip latency on every load.
+    // When no CDN is in use, keep it off (default) to prevent information leakage.
+    dnsPrefetchControl: { allow: !!config.cdnUrl },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+    },
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "img-src": ["'self'", "data:", "https://validator.swagger.io"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "https:"],
+      },
+    },
+  }),
+);
 app.use(corsMiddleware);
 
 // Compress all JSON/text responses to reduce bandwidth on large payloads

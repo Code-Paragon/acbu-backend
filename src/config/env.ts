@@ -38,18 +38,7 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
     .default("info"),
-  LOG_LEVEL_CONSOLE: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
-    .optional(),
-  LOG_LEVEL_FILE: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
-    .optional(),
+  BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
   CORS_ORIGIN: z.string().optional(),
 
   // B-063: Fail-open controls for OpenAI degradation scenarios.
@@ -167,6 +156,9 @@ export const config = {
   logFileLevel:
     env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFile: process.env.LOG_FILE || "logs/app.log",
+
+  // Business calendar timezone for salary runs and withdrawal windows (#408)
+  businessTimeZone: env.BUSINESS_TIMEZONE,
 
   // Fintech APIs
   flutterwave: {

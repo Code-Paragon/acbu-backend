@@ -12,6 +12,10 @@ import { reserveTracker, ReserveTracker } from "../reserve/ReserveTracker";
 // import { basketService } from '../basket';
 import type { Audience } from "../../middleware/auth";
 import { AppError } from "../../middleware/errorHandler";
+import {
+  getStartOfZonedDay,
+  getStartOfZonedMonth,
+} from "../../utils/dateUtils";
 
 function buildActorWhere(userId: string | null, organizationId: string | null) {
   if (userId) {
@@ -44,8 +48,8 @@ export async function checkDepositLimits(
 ): Promise<void> {
   const config = await getLimitConfig(audience);
   const now = new Date();
-  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const startOfDay = getStartOfZonedDay(now);
+  const startOfMonth = getStartOfZonedMonth(now);
 
   const whereActor = buildActorWhere(userId, organizationId);
   const mintedDaily = await prisma.transaction.aggregate({
@@ -101,8 +105,8 @@ export async function checkWithdrawalLimits(
 ): Promise<void> {
   const config = await getLimitConfig(audience);
   const now = new Date();
-  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const startOfDay = getStartOfZonedDay(now);
+  const startOfMonth = getStartOfZonedMonth(now);
 
   const whereActor = buildActorWhere(userId, organizationId);
   const burnedDaily = await prisma.transaction.aggregate({

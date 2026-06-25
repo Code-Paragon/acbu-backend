@@ -5,6 +5,7 @@ import helmet from "helmet";
  */
 export const securityHeadersMiddleware = helmet({
   crossOriginEmbedderPolicy: true,
+  crossOriginOpenerPolicy: { policy: "same-origin" },
   hsts: {
     maxAge: 31536000,
     includeSubDomains: true,

@@ -90,7 +90,7 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
 
       - name: Run tests
-        run: pnpm test
+        run: pnpm run test:ci
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
           MONGODB_URI: mongodb://localhost:27017/acbu_test

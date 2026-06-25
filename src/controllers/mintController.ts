@@ -380,6 +380,25 @@ export async function depositFromBasketCurrency(
     // 2. Calculate ACBU equivalent: localAmount / localRate
     // 3. Convert to USD: acbuAmount * acbuUsdRate
     const amountUsd = await convertLocalToUsd(amountNum, currency);
+    
+    await checkDepositLimits(
+      audience,
+      amountUsd,
+      userId,
+      req.apiKey?.organizationId ?? null,
+    );
+    const tx = await prisma.transaction.create({
+      data: {
+        userId: req.apiKey?.userId ?? undefined,
+        organizationId: req.apiKey?.organizationId ?? undefined,
+        type: "mint",
+        status: "pending",
+        localCurrency: currency,
+        localAmount: new Decimal(amountDecimal),
+        rateSnapshot: {
+          deposit_currency: currency,
+          amount: amountDecimal.toNumber(),
+          timestamp: new Date().toISOString(),
 
     await checkDepositLimits(
       audience,

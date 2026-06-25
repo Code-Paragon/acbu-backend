@@ -40,6 +40,7 @@ const envSchema = z.object({
     .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
     .default("info"),
   CORS_ORIGIN: z.string().optional(),
+  CDN_URL: z.string().url().optional(),
 
   // B-063: Fail-open controls for OpenAI degradation scenarios.
   OPENAI_FAIL_OPEN_ENABLED: z.string().default("true"),
@@ -403,4 +404,7 @@ export const config = {
 
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)
   corsOrigin: parseCorsOrigins(env.CORS_ORIGIN, env.NODE_ENV),
+
+  // CDN — when set, DNS prefetch is enabled so browsers can resolve the CDN domain early
+  cdnUrl: env.CDN_URL ?? null,
 };

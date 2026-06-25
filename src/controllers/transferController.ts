@@ -6,6 +6,7 @@ import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";
 import { extractIdempotencyKey } from "../utils/idempotency";
 import { encodeCursor, decodeCursor } from "../middleware/pagination";
+import { getIfMatchHeader } from "../utils/walletConcurrency";
 
 export const createTransferSchema = z.object({
   to: z.string().min(1, "to is required"),
@@ -48,6 +49,7 @@ export async function postTransfers(
       {
         // Legacy behavior: without hash, tx stays pending until key/worker is wired.
         submittedBlockchainTxHash: body.blockchain_tx_hash,
+        ifMatch: getIfMatchHeader(req),
       },
     );
     res.status(201).json({

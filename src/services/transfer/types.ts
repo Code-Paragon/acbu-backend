@@ -17,6 +17,8 @@ export interface CreateTransferOptions {
   submittedBlockchainTxHash?: string;
   /** Trace/request ID for distributed tracing. Generated via crypto.randomUUID() if not supplied. */
   correlationId?: string;
+  /** Wallet ETag from If-Match; required for optimistic concurrency on balance updates. */
+  ifMatch?: string;
 }
 
 export interface CreateTransferResult {

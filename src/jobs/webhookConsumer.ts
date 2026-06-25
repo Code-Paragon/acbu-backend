@@ -56,55 +56,40 @@ export async function startWebhookConsumer(): Promise<void> {
 
         //  Failed delivery
         if (result.terminal || retries >= MAX_RETRIES) {
-          logger.error("Webhook failed permanently", {
-            webhookId,
-            retries,
-          });
-
-          // send to DLQ explicitly
+          logger.error("Webhook failed permanently", { webhookId, retries });
           ch.sendToQueue(QUEUES.WEBHOOKS_DLQ, msg.content, { persistent: true });
           ch.ack(msg);
           return;
         }
 
-        // Exponential backoff before requeuing
-        const backoffMs = Math.pow(2, retries) * 1000;
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-
-        // Retry with incremented header
-        ch.sendToQueue(QUEUES.WEBHOOKS, msg.content, {
-          persistent: true,
-          headers: {
-            ...headers,
-            "x-retries": retries + 1,
-          },
-        });
-
+        // Exponential backoff: ack immediately, re-enqueue after delay so the
+        // channel is not blocked and other messages can be processed.
         ch.ack(msg);
+        const backoffMs = Math.min(Math.pow(2, retries) * 1000, 60_000);
+        setTimeout(() => {
+          ch.sendToQueue(QUEUES.WEBHOOKS, msg.content, {
+            persistent: true,
+            headers: { ...headers, "x-retries": retries + 1 },
+          });
+        }, backoffMs);
+        logger.info("Webhook retry scheduled", { webhookId, retries, backoffMs });
       } catch (error) {
         logger.error("Webhook consumer error", { error });
 
+        ch.ack(msg);
+
         if (retries >= MAX_RETRIES) {
-          // send to DLQ explicitly
           ch.sendToQueue(QUEUES.WEBHOOKS_DLQ, msg.content, { persistent: true });
-          ch.ack(msg);
           return;
         }
 
-        // Exponential backoff before requeuing
-        const backoffMs = Math.pow(2, retries) * 1000;
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-
-        // retry on processing error
-        ch.sendToQueue(QUEUES.WEBHOOKS, msg.content, {
-          persistent: true,
-          headers: {
-            ...headers,
-            "x-retries": retries + 1,
-          },
-        });
-
-        ch.ack(msg);
+        const backoffMs = Math.min(Math.pow(2, retries) * 1000, 60_000);
+        setTimeout(() => {
+          ch.sendToQueue(QUEUES.WEBHOOKS, msg.content, {
+            persistent: true,
+            headers: { ...headers, "x-retries": retries + 1 },
+          });
+        }, backoffMs);
       }
     },
     { noAck: false },

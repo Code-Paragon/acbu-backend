@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { initTracing } from "./config/tracing";
 initTracing();
 
@@ -7,6 +9,7 @@ import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
 import { logger } from "./config/logger";
+import { execSync } from "child_process";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
@@ -15,17 +18,57 @@ import { correlationMiddleware } from "./middleware/correlation";
 import { requestLogger } from "./middleware/logger";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
+import { userAgentFilter } from "./middleware/userAgentFilter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
-import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
+import { ErrorCodes } from "./types/errorCodes";
+import { registerGracefulShutdown, setHttpServer, setMemoryMonitorHandle } from "./gracefulShutdown";
+import { startMemoryMonitor } from "./utils/memoryMonitor";
 
 const app: express.Express = express();
+
+// Parse trust proxy hop count safely from environment variables (Default to 0 for local development)
+const trustProxyValue = process.env.TRUST_PROXY
+  ? isNaN(Number(process.env.TRUST_PROXY))
+    ? process.env.TRUST_PROXY
+    : Number(process.env.TRUST_PROXY)
+  : 0;
+
+app.set("trust proxy", trustProxyValue);
+
 const MAX_REQUEST_BODY_SIZE = "1mb";
+const SUPPORTED_REQUEST_ENCODINGS = new Set(["identity", "gzip"]);
+
+function normalizeContentEncoding(req: Request): string {
+  const header = req.headers["content-encoding"];
+  const value = Array.isArray(header) ? header[0] : header;
+  return (value || "identity").trim().toLowerCase() || "identity";
+}
+
+function validateRequestContentEncoding(req: Request, _res: Response, next: NextFunction): void {
+  const encoding = normalizeContentEncoding(req);
+
+  if (!SUPPORTED_REQUEST_ENCODINGS.has(encoding)) {
+    return next(
+      new AppError(
+        "Unsupported Content-Encoding. Use identity or gzip.",
+        415,
+        "UNSUPPORTED_CONTENT_ENCODING",
+      ),
+    );
+  }
+
+  next();
+}
 
 // Security middleware
 app.use(
   helmet({
+    // Enable DNS prefetch when a CDN is configured so browsers can resolve
+    // the CDN domain early, avoiding extra round-trip latency on every load.
+    // When no CDN is in use, keep it off (default) to prevent information leakage.
+    dnsPrefetchControl: { allow: !!config.cdnUrl },
     hsts: {
       maxAge: 31536000,
       includeSubDomains: true,
@@ -45,7 +88,9 @@ app.use(corsMiddleware);
 // Compress all JSON/text responses to reduce bandwidth on large payloads
 app.use(compression());
 
-app.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
+// Validate and explicitly enable request body inflation for gzip-compressed clients (#409).
+app.use(validateRequestContentEncoding);
+app.use(express.urlencoded({ extended: true, inflate: true, limit: MAX_REQUEST_BODY_SIZE }));
 
 // ── Webhook Content-Type validation ────────────────────────────────────────────
 // Must check Content-Type BEFORE raw body parser, since non-JSON bodies would
@@ -61,21 +106,20 @@ function validateWebhookContentType(req: Request, _res: Response, next: NextFunc
 app.use(
   `/${config.apiVersion}/webhooks`,
   validateWebhookContentType,
-  express.raw({ type: "application/json" }),
+  express.raw({ inflate: true, limit: MAX_REQUEST_BODY_SIZE, type: "application/json" }),
   (req: express.Request, res: express.Response, next) => {
     const raw = req.body as Buffer;
     (req as unknown as { rawBody: Buffer }).rawBody = raw;
     try {
       (req as unknown as { body: unknown }).body = JSON.parse(raw.toString());
     } catch {
-      res.status(400).json({ error: "Invalid JSON payload" });
-      return;
+      throw new AppError("Invalid JSON payload", 400, ErrorCodes.INVALID_JSON);
     }
     next();
   },
   webhookRoutes,
 );
-app.use(express.json({ limit: MAX_REQUEST_BODY_SIZE }));
+app.use(express.json({ inflate: true, limit: MAX_REQUEST_BODY_SIZE }));
 
 app.use(
   (
@@ -93,6 +137,15 @@ app.use(
       });
       return;
     }
+    if (err?.type === "encoding.unsupported") {
+      res.status(415).json({
+        error: {
+          code: "UNSUPPORTED_CONTENT_ENCODING",
+          message: "Unsupported request body encoding",
+        },
+      });
+      return;
+    }
     next(err);
   },
 );
@@ -104,9 +157,29 @@ app.use(requestLogger);
 // Rate limiting
 app.use(standardRateLimiter);
 
+// Block known scanners, credential-stuffing tools, and headless abuse scripts
+app.use(userAgentFilter);
+
 // API Documentation — disabled in production to prevent endpoint enumeration (#274)
 if (config.nodeEnv !== "production") {
-  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  // Serve swagger-ui static assets with express.static so conditional
+  // requests are handled (ETag / Last-Modified). Set a short max-age to
+  // allow browsers to cache assets while still respecting conditional GETs.
+  // The HTML page is generated by swaggerUi.setup which references these
+  // static assets under the same prefix.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const swaggerDistPath = require("swagger-ui-dist").getAbsoluteFSPath();
+  app.use(
+    "/api-docs",
+    express.static(swaggerDistPath, {
+      maxAge: "1d",
+      etag: true,
+      lastModified: true,
+    }),
+  );
+
+  app.get("/api-docs", swaggerUi.setup(swaggerSpec));
+
   // Raw JSON spec for tooling / CI spec-drift checks (#292)
   app.get("/api-docs.json", (_req, res) => {
     res.json(swaggerSpec);
@@ -136,6 +209,10 @@ async function startServer() {
       try {
         await connectMongoDB();
         logger.info("MongoDB connected");
+        const { ensureIdempotencyIndex } = await import("./services/idempotency/idempotencyStore");
+        await ensureIdempotencyIndex();
+        const { ensureJobLockIndex } = await import("./utils/jobLock");
+        await ensureJobLockIndex();
       } catch (mongoError) {
         logger.warn(
           "MongoDB unavailable, continuing without cache. Set MONGODB_URI and ensure network access for cache.",
@@ -244,6 +321,10 @@ async function startServer() {
     // Mark application as ready for health checks
     const { markStartupComplete } = await import("./services/health/healthService");
     markStartupComplete();
+
+    // #436: Start heap usage monitor — logs warnings/errors and writes heap snapshots on leak detection.
+    const memoryMonitorHandle = startMemoryMonitor();
+    setMemoryMonitorHandle(memoryMonitorHandle);
 
     // Start HTTP server
     const server = app.listen(config.port, () => {

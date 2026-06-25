@@ -18,6 +18,7 @@ import { config } from "../config/env";
 import { logger, logFinancialEvent } from "../config/logger";
 import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";
+import { ErrorCodes } from "../types/errorCodes";
 import { reconcileBillsWebhook } from "../services/bills";
 import type { FinancialEventStatus } from "../types/logging";
 
@@ -30,6 +31,27 @@ import type { FinancialEventStatus } from "../types/logging";
 const isDev = config.nodeEnv !== "production";
 const bypassEnabled =
   isDev && process.env.WEBHOOK_SIGNATURE_BYPASS === "true";
+
+// Maximum allowed clock drift in seconds between the webhook timestamp and server time.
+// Rejects replayed webhooks that fall outside this window. Default: 300 s (±5 min).
+const WEBHOOK_TIMESTAMP_TOLERANCE_S = parseInt(
+  process.env.WEBHOOK_TIMESTAMP_TOLERANCE_S || "300",
+  10,
+);
+
+/**
+ * Validate a webhook timestamp (Unix seconds or ISO-8601) against server time.
+ * Returns false if the timestamp is absent, unparseable, or outside the tolerance window.
+ */
+function isTimestampValid(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const ts = Number(raw);
+  const nowS = Date.now() / 1000;
+  // Accept plain Unix seconds or ISO-8601 strings
+  const eventS = Number.isFinite(ts) ? ts : Date.parse(raw) / 1000;
+  if (!Number.isFinite(eventS)) return false;
+  return Math.abs(nowS - eventS) <= WEBHOOK_TIMESTAMP_TOLERANCE_S;
+}
 
 if (bypassEnabled) {
   logger.warn(
@@ -64,21 +86,39 @@ export function verifyFlutterwaveSignature(
     throw new AppError(
       "Webhook verification unavailable: secret not configured",
       503,
-      "CONFIG_ERROR",
+      ErrorCodes.CONFIG_ERROR,
     );
 
   }
 
   const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
   if (!rawBody || !Buffer.isBuffer(rawBody)) {
-    res.status(400).json({ error: "Raw body required for verification" });
+    throw new AppError(
+      "Raw body required for verification",
+      400,
+      ErrorCodes.RAW_BODY_REQUIRED,
+    );
+  }
+
+  // #390: Reject requests whose timestamp falls outside the tolerance window.
+  // Flutterwave sends the event time in the x-flw-timestamp header (Unix seconds).
+  const timestamp = req.headers["x-flw-timestamp"] as string | undefined;
+  if (!isTimestampValid(timestamp)) {
+    logger.warn("Flutterwave webhook timestamp invalid or outside tolerance window", {
+      timestamp,
+      toleranceS: WEBHOOK_TIMESTAMP_TOLERANCE_S,
+    });
+    res.status(401).json({ error: "Webhook timestamp invalid or expired" });
     return;
   }
 
   const received = req.headers["verif-hash"] as string | undefined;
   if (!received) {
-    res.status(401).json({ error: "Missing verif-hash header" });
-    return;
+    throw new AppError(
+      "Missing verif-hash header",
+      401,
+      ErrorCodes.MISSING_SIGNATURE,
+    );
   }
 
   const computed = crypto
@@ -105,7 +145,7 @@ export function verifyFlutterwaveSignature(
     return;
   }
   logger.warn("Flutterwave webhook signature mismatch");
-  res.status(401).json({ error: "Invalid signature" });
+  throw new AppError("Invalid signature", 401, ErrorCodes.INVALID_SIGNATURE);
 }
 
 // ── Paystack Webhook ────────────────────────────────────────────────────────
@@ -137,21 +177,39 @@ export function verifyPaystackSignature(
     throw new AppError(
       "Webhook verification unavailable: secret not configured",
       503,
-      "CONFIG_ERROR",
+      ErrorCodes.CONFIG_ERROR,
     );
 
   }
 
   const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
   if (!rawBody || !Buffer.isBuffer(rawBody)) {
-    res.status(400).json({ error: "Raw body required for verification" });
+    throw new AppError(
+      "Raw body required for verification",
+      400,
+      ErrorCodes.RAW_BODY_REQUIRED,
+    );
+  }
+
+  // #390: Reject requests whose timestamp falls outside the tolerance window.
+  // Paystack sends the event time in the x-paystack-timestamp header (Unix seconds).
+  const timestamp = req.headers["x-paystack-timestamp"] as string | undefined;
+  if (!isTimestampValid(timestamp)) {
+    logger.warn("Paystack webhook timestamp invalid or outside tolerance window", {
+      timestamp,
+      toleranceS: WEBHOOK_TIMESTAMP_TOLERANCE_S,
+    });
+    res.status(401).json({ error: "Webhook timestamp invalid or expired" });
     return;
   }
 
   const received = req.headers["x-paystack-signature"] as string | undefined;
   if (!received) {
-    res.status(401).json({ error: "Missing x-paystack-signature header" });
-    return;
+    throw new AppError(
+      "Missing x-paystack-signature header",
+      401,
+      ErrorCodes.MISSING_SIGNATURE,
+    );
   }
 
   const computed = crypto
@@ -175,8 +233,7 @@ export function verifyPaystackSignature(
 
   if (!signatureValid) {
     logger.warn("Paystack webhook signature mismatch");
-    res.status(401).json({ error: "Invalid signature" });
-    return;
+    throw new AppError("Invalid signature", 401, ErrorCodes.INVALID_SIGNATURE);
   }
   next();
 }

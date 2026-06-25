@@ -2,6 +2,7 @@ import { Router } from "express";
 import { config } from "../config/env";
 import { deepHealthCheck } from "../controllers/healthController";
 import { requireAdminApiKey } from "../middleware/adminAuth";
+import { registry } from "../config/promMetrics";
 import reserveRoutes from "./reserveRoutes";
 import recipientRoutes from "./recipientRoutes";
 import transferRoutes from "./transferRoutes";
@@ -70,6 +71,13 @@ router.get("/health/deep", requireAdminApiKey, deepHealthCheck);
 
 // Extended health / metrics (reserve ratio when available; for monitoring dashboards)
 router.get("/health/metrics", requireAdminApiKey, deepHealthCheck);
+
+// #388: Prometheus-compatible metrics endpoint (admin-only).
+// Scrape with: GET /api/v1/metrics  Authorization: Bearer <ADMIN_API_KEY>
+router.get("/metrics", requireAdminApiKey, async (_req, res) => {
+  res.set("Content-Type", registry.contentType);
+  res.end(await registry.metrics());
+});
 
 // API routes
 router.use("/auth", authRoutes);

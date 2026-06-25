@@ -1,12 +1,42 @@
 import winston from "winston";
 import path from "path";
+import fs from "fs";
 import { config } from "./env";
 import { FinancialLogPayload, FinancialEventEnvironment } from "../types/logging";
 
+export type LogLevel =
+  | "error"
+  | "warn"
+  | "info"
+  | "http"
+  | "verbose"
+  | "debug"
+  | "silly";
+
+export function resolveTransportLogLevels(options: {
+  nodeEnv: string;
+  logLevel: LogLevel;
+  logConsoleLevel?: LogLevel;
+  logFileLevel?: LogLevel;
+}): { console: LogLevel; file: LogLevel; error: LogLevel } {
+  const isProduction = options.nodeEnv === "production";
+
+  return {
+    console: options.logConsoleLevel ?? (isProduction ? "info" : options.logLevel),
+    file: options.logFileLevel ?? (isProduction ? "info" : options.logLevel),
+    error: "error",
+  };
+}
+
+const transportLevels = resolveTransportLogLevels({
+  nodeEnv: config.nodeEnv,
+  logLevel: config.logLevel as LogLevel,
+  logConsoleLevel: config.logConsoleLevel as LogLevel,
+  logFileLevel: config.logFileLevel as LogLevel,
+});
+
 const logDir = path.dirname(config.logFile);
 
-// Create logs directory if it doesn't exist
-import fs from "fs";
 if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true });
 }
@@ -30,35 +60,33 @@ const consoleFormat = winston.format.combine(
   }),
 );
 
+const isProduction = config.nodeEnv === "production";
+
 export const logger = winston.createLogger({
   level: config.logLevel,
   format: logFormat,
   defaultMeta: { service: "acbu-backend" },
   transports: [
-    // Write all logs to console
     new winston.transports.Console({
-      format: consoleFormat,
+      level: transportLevels.console,
+      format: isProduction
+        ? consoleFormat
+        : winston.format.combine(
+            winston.format.colorize(),
+            winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+            winston.format.simple(),
+          ),
     }),
-    // Write all logs with level 'error' and below to error.log
     new winston.transports.File({
       filename: path.join(logDir, "error.log"),
-      level: "error",
+      level: transportLevels.error,
     }),
-    // Write all logs to combined.log
     new winston.transports.File({
       filename: config.logFile,
+      level: transportLevels.file,
     }),
   ],
 });
-
-// If we're not in production, log to the console with simpler format
-if (config.nodeEnv !== "production") {
-  logger.add(
-    new winston.transports.Console({
-      format: winston.format.simple(),
-    }),
-  );
-}
 
 // ── Structured Financial Logging ─────────────────────────────────────────────
 

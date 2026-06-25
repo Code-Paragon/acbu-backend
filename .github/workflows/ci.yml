@@ -90,7 +90,14 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
 
       - name: Run tests
-        run: pnpm run test:ci
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            pnpm test -- --changedSince=origin/${{ github.base_ref }}
+          elif [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            pnpm test
+          else
+            pnpm test -- --onlyChanged
+          fi
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
           MONGODB_URI: mongodb://localhost:27017/acbu_test

@@ -14,7 +14,8 @@ import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
-import { requestLogger } from "./middleware/requestLogger";
+import { correlationMiddleware } from "./middleware/correlation";
+import { requestLogger } from "./middleware/logger";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
 import { userAgentFilter } from "./middleware/userAgentFilter";
@@ -150,6 +151,7 @@ app.use(
 );
 
 // Logging
+app.use(correlationMiddleware);
 app.use(requestLogger);
 
 // Rate limiting

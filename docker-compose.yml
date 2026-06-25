@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.3-alpine
     container_name: acbu-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-acbu}
@@ -19,7 +19,7 @@ services:
       retries: 5
 
   mongodb:
-    image: mongo:7
+    image: mongo:7.0.11
     container_name: acbu-mongodb
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-acbu}
@@ -36,7 +36,7 @@ services:
       retries: 5
 
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:3.13.4-management-alpine
     container_name: acbu-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-acbu}

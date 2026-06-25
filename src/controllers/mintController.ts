@@ -4,13 +4,13 @@
  */
 import { Response, NextFunction } from "express";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../config/database";
 import { getContractAddresses } from "../config/contracts";
 import { acbuMintingService } from "../services/contracts";
 import { stellarClient } from "../services/stellar/client";
 import { AuthRequest } from "../middleware/auth";
-import { Decimal } from "@prisma/client/runtime/library";
-import { Prisma } from "@prisma/client";
 import { logAudit } from "../services/audit";
 import {
   BASKET_CURRENCIES,
@@ -18,11 +18,15 @@ import {
   isAllowedDepositCurrency,
   isForbiddenDepositCurrency,
 } from "../config/basket";
-import { checkDepositLimits, isMintingPaused } from "../services/limits/limitsService";
+import {
+  checkDepositLimits,
+  isMintingPaused,
+} from "../services/limits/limitsService";
 import { enqueueUsdcConvertAndMint } from "../jobs/usdcConvertAndMintJob";
 import { AppError } from "../middleware/errorHandler";
 import { ErrorCodes } from "../types/errorCodes";
-import { convertLocalToUsd } from "../services/rates/currencyConverter";
+import { convertLocalToUsd } from "../services/rates";
+import { extractIdempotencyKey } from "../utils/idempotency";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
 import { logger } from "../config/logger";
 import {
@@ -31,8 +35,6 @@ import {
   contractNumberToDecimal,
   calculateFee,
 } from "../utils/decimalUtils";
-import { convertLocalToUsd } from "../services/rates";
-import { extractIdempotencyKey } from "../utils/idempotency";
 
 const MINT_FEE_BPS = 30; // 0.3%
 
@@ -89,7 +91,10 @@ export async function mintFromUsdc(
     }
 
     const { usdc_amount, wallet_address } = parsed.data;
-    const userWalletAddress = await assertUserWalletAddress(userId, wallet_address);
+    const userWalletAddress = await assertUserWalletAddress(
+      userId,
+      wallet_address,
+    );
     const usdcDecimal = parseMonetaryString(usdc_amount, "usdc_amount");
     const usdcNum = usdcDecimal.toNumber(); // Only convert at boundary for limits service
     // SECURITY: Always enforce circuit breaker and deposit limits
@@ -100,14 +105,20 @@ export async function mintFromUsdc(
       throw new AppError(
         "New minting is temporarily paused (reserve ratio below 102%).",
         503,
-        "CIRCUIT_BREAKER",
+        ErrorCodes.CIRCUIT_BREAKER,
       );
     }
 
     // Apply deposit limits - use retail as default if no audience is set
     // FIX #32: Defaulting to "retail" prevents limit bypass when audience is undefined
     const audience = req.audience || "retail";
-    await checkDepositLimits(audience, usdcNum, userId, req.apiKey?.organizationId ?? null);
+    await checkDepositLimits(
+      audience,
+      usdcNum,
+      userId,
+      req.apiKey?.organizationId ?? null,
+    );
+
     let swap;
     try {
       swap = await prisma.onRampSwap.create({
@@ -142,6 +153,7 @@ export async function mintFromUsdc(
       }
       throw createError;
     }
+
     await enqueueUsdcConvertAndMint({ onRampSwapId: swap.id });
     res.status(202).json({
       on_ramp_swap_id: swap.id,
@@ -259,7 +271,8 @@ export const depositBodySchema = z.object({
     .transform((value) => value.toUpperCase())
     .refine(
       (currency) =>
-        isAllowedDepositCurrency(currency) || isForbiddenDepositCurrency(currency),
+        isAllowedDepositCurrency(currency) ||
+        isForbiddenDepositCurrency(currency),
       {
         message: `Currency must be one of: ${[
           ...BASKET_CURRENCIES,
@@ -296,7 +309,9 @@ export async function depositFromBasketCurrency(
         parsed.error.flatten(),
       );
     }
+
     const { currency, amount, wallet_address, fintech_tx_id } = parsed.data;
+
     if (isForbiddenDepositCurrency(currency)) {
       throw new AppError(
         `Deposits in ${currency} are not allowed. Only basket (pool) currencies are accepted: ${BASKET_CURRENCIES.join(", ")}. For USDC, use the on-ramp (swap USDC→XLM via Stellar LP).`,
@@ -305,6 +320,7 @@ export async function depositFromBasketCurrency(
         { deposit_currencies_allowed: [...BASKET_CURRENCIES] },
       );
     }
+
     if (!isAllowedDepositCurrency(currency)) {
       throw new AppError(
         `Currency ${currency} is not supported for deposit. Allowed basket currencies: ${BASKET_CURRENCIES.join(", ")}.`,
@@ -313,23 +329,34 @@ export async function depositFromBasketCurrency(
         { deposit_currencies_allowed: [...BASKET_CURRENCIES] },
       );
     }
+
     const amountDecimal = parseMonetaryString(amount, "amount");
     const amountNum = amountDecimal.toNumber(); // Only convert at boundary for existing code
     const userId = req.apiKey?.userId;
+
     if (!userId) {
       throw new AppError("User context required for deposit", 401);
     }
+
     await assertUserWalletAddress(userId, wallet_address);
+
     if (fintech_tx_id) {
       const existingTx = await prisma.transaction.findUnique({
         where: { idempotencyKey: fintech_tx_id },
       });
+
       if (existingTx) {
-        throw new AppError("Duplicate fintech_tx_id detected", 409, "DUPLICATE_FINTECH_TX_ID", {
-          fintech_tx_id,
-        });
+        throw new AppError(
+          "Duplicate fintech_tx_id detected",
+          409,
+          "DUPLICATE_FINTECH_TX_ID",
+          {
+            fintech_tx_id,
+          },
+        );
       }
     }
+
     // SECURITY: Always enforce circuit breaker and deposit limits
     // Previously these checks were skipped when req.audience was undefined,
     // allowing bypass of critical financial controls via direct /mint/deposit route
@@ -373,18 +400,19 @@ export async function depositFromBasketCurrency(
           amount: amountDecimal.toNumber(),
           timestamp: new Date().toISOString(),
 
-    await checkDepositLimits(audience, amountUsd, userId, req.apiKey?.organizationId ?? null);
+    await checkDepositLimits(
+      audience,
+      amountUsd,
+      userId,
+      req.apiKey?.organizationId ?? null,
+    );
 
-    const idempotencyKey = extractIdempotencyKey(req);
+    const idempotencyKey = extractIdempotencyKey(req) ?? fintech_tx_id ?? undefined;
     if (idempotencyKey) {
-      const existingTx = await prisma.transaction.findFirst({
-        where: {
-          idempotencyKey,
-          type: "mint",
-          userId,
-          organizationId: req.apiKey?.organizationId ?? undefined,
-        },
+      const existingTx = await prisma.transaction.findUnique({
+        where: { idempotencyKey },
       });
+
       if (existingTx) {
         res.status(202).json({
           transaction_id: existingTx.id,
@@ -393,7 +421,9 @@ export async function depositFromBasketCurrency(
           wallet_address: wallet_address ? "***" : undefined,
           status: existingTx.status,
           message:
-            "Deposit received. Complete payment to the designated account for your currency; ACBU will be minted after confirmation.",
+            existingTx.status === "completed"
+              ? "Deposit already processed."
+              : "Deposit already received and is still being processed.",
         });
         return;
       }
@@ -405,6 +435,7 @@ export async function depositFromBasketCurrency(
         data: {
           userId: req.apiKey?.userId ?? undefined,
           organizationId: req.apiKey?.organizationId ?? undefined,
+          idempotencyKey,
           type: "mint",
           status: "pending",
           localCurrency: currency,
@@ -414,7 +445,6 @@ export async function depositFromBasketCurrency(
             amount: amountDecimal.toNumber(),
             timestamp: new Date().toISOString(),
           },
-          idempotencyKey,
         },
       });
     } catch (createError) {
@@ -423,14 +453,10 @@ export async function depositFromBasketCurrency(
         createError instanceof Prisma.PrismaClientKnownRequestError &&
         createError.code === "P2002"
       ) {
-        const existingTx = await prisma.transaction.findFirst({
-          where: {
-            idempotencyKey,
-            type: "mint",
-            userId,
-            organizationId: req.apiKey?.organizationId ?? undefined,
-          },
+        const existingTx = await prisma.transaction.findUnique({
+          where: { idempotencyKey },
         });
+
         if (existingTx) {
           res.status(202).json({
             transaction_id: existingTx.id,
@@ -439,13 +465,17 @@ export async function depositFromBasketCurrency(
             wallet_address: wallet_address ? "***" : undefined,
             status: existingTx.status,
             message:
-              "Deposit received. Complete payment to the designated account for your currency; ACBU will be minted after confirmation.",
+              existingTx.status === "completed"
+                ? "Deposit already processed."
+                : "Deposit already received and is still being processed.",
           });
           return;
         }
       }
+
       throw createError;
     }
+
     await logAudit({
       eventType: "transaction",
       entityType: "transaction",
@@ -459,6 +489,7 @@ export async function depositFromBasketCurrency(
       },
       performedBy: req.apiKey?.userId ?? undefined,
     });
+
     res.status(202).json({
       transaction_id: tx.id,
       currency,

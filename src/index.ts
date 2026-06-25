@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { initTracing } from "./config/tracing";
 initTracing();
 

@@ -69,6 +69,7 @@ app.use(
     // the CDN domain early, avoiding extra round-trip latency on every load.
     // When no CDN is in use, keep it off (default) to prevent information leakage.
     dnsPrefetchControl: { allow: !!config.cdnUrl },
+    crossOriginOpenerPolicy: { policy: "same-origin" },
     hsts: {
       maxAge: 31536000,
       includeSubDomains: true,
@@ -102,24 +103,29 @@ function validateWebhookContentType(req: Request, _res: Response, next: NextFunc
   next();
 }
 
-// Webhooks need raw body for signature verification; mount before json()
+// Webhooks need raw body for signature verification; mount before the generic JSON parser.
 app.use(
   `/${config.apiVersion}/webhooks`,
   validateWebhookContentType,
-  express.raw({ inflate: true, limit: MAX_REQUEST_BODY_SIZE, type: "application/json" }),
-  (req: express.Request, res: express.Response, next) => {
-    const raw = req.body as Buffer;
-    (req as unknown as { rawBody: Buffer }).rawBody = raw;
-    try {
-      (req as unknown as { body: unknown }).body = JSON.parse(raw.toString());
-    } catch {
-      throw new AppError("Invalid JSON payload", 400, ErrorCodes.INVALID_JSON);
-    }
-    next();
-  },
+  express.json({
+    inflate: true,
+    limit: MAX_REQUEST_BODY_SIZE,
+    type: "application/json",
+    verify: (req: express.Request, _res: express.Response, buf: Buffer) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    },
+  }),
   webhookRoutes,
 );
-app.use(express.json({ inflate: true, limit: MAX_REQUEST_BODY_SIZE }));
+app.use(
+  express.json({
+    inflate: true,
+    limit: MAX_REQUEST_BODY_SIZE,
+    verify: (req: express.Request, _res: express.Response, buf: Buffer) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    },
+  }),
+);
 
 app.use(
   (

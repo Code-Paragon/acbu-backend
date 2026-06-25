@@ -8,6 +8,82 @@ import {
   poolExhaustedCounter,
 } from "./promMetrics";
 
+function buildPrismaClient(url: string): PrismaClient {
+  return new PrismaClient({
+    datasources: { db: { url } },
+    log: [
+      { level: "query", emit: "event" },
+      { level: "error", emit: "stdout" },
+      { level: "warn", emit: "stdout" },
+    ],
+  });
+}
+
+function applyPrismaClientMiddleware(client: PrismaClient): void {
+  client.$use(async (params: Prisma.MiddlewareParams, next: Prisma.MiddlewareFn) => {
+    const tracer = trace.getTracer("prisma");
+    const spanName = `prisma.${params.model ?? "raw"}.${params.action}`;
+    return tracer.startActiveSpan(spanName, async (span) => {
+      span.setAttributes({
+        "db.system": "postgresql",
+        "db.operation": params.action,
+        ...(params.model ? { "db.prisma.model": params.model } : {}),
+      });
+      try {
+        const result = await next(params);
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
+  });
+
+  client.$use(async (params: Prisma.MiddlewareParams, next: Prisma.MiddlewareFn) => {
+    const end = poolAcquireHistogram.startTimer({
+      model: params.model ?? "raw",
+      action: params.action,
+    });
+    try {
+      return await next(params);
+    } finally {
+      end();
+    }
+  });
+
+  client.$use(async (params: Prisma.MiddlewareParams, next: Prisma.MiddlewareFn) => {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await next(params);
+      } catch (err) {
+        if (!isPoolExhaustionError(err)) {
+          throw err;
+        }
+        poolExhaustedCounter.inc();
+        if (attempt < MAX_RETRIES) {
+          lastError = err;
+          const backoff = BASE_BACKOFF_MS * 2 ** (attempt - 1);
+          logger.warn("Prisma connection pool exhausted, retrying", {
+            model: params.model,
+            action: params.action,
+            attempt,
+            maxRetries: MAX_RETRIES,
+            backoffMs: backoff,
+          });
+          await new Promise((r) => setTimeout(r, backoff));
+        } else {
+          throw err;
+        }
+      }
+    }
+    throw lastError;
+  });
+}
+
 // B-056: Validate URL assignments at boot to prevent runtime/migration confusion.
 // DATABASE_URL  → direct PostgreSQL only (used by prisma migrate)
 // PRISMA_ACCELERATE_URL → prisma:// or prisma+postgres:// protocol (runtime connection pooling)
@@ -30,8 +106,6 @@ if (config.prismaAccelerateUrl && !ACCELERATE_PROTOCOL_RE.test(config.prismaAcce
       "If you intended a direct URL, set DATABASE_URL and leave PRISMA_ACCELERATE_URL unset.",
   );
 }
-
-const useAccelerate = Boolean(config.prismaAccelerateUrl);
 
 // #386: When routing through Prisma Accelerate, the proxy enforces its own
 // query timeout (default 10 s, configurable via ACCELERATE_QUERY_TIMEOUT_MS in
@@ -65,41 +139,41 @@ function appendStatementTimeout(url: string, timeoutMs: number): string {
   }
 }
 
-const databaseUrl = useAccelerate
-  ? config.prismaAccelerateUrl!
-  : appendStatementTimeout(config.databaseUrl, STATEMENT_TIMEOUT_MS);
+// Retry config for connection pool exhaustion (Prisma Accelerate)
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 200;
+
+function resolveDatabaseUrls(): { runtimeUrl: string; replicaUrl: string; useAccelerate: boolean } {
+  const configuredDatabaseUrl = process.env.DATABASE_URL || config.databaseUrl;
+  const configuredAccelerateUrl = process.env.PRISMA_ACCELERATE_URL || config.prismaAccelerateUrl;
+  const configuredReplicaUrl = process.env.DATABASE_URL_REPLICA || config.databaseUrlReplica;
+
+  const latestStatementTimeoutMs = parseInt(process.env.DB_STATEMENT_TIMEOUT_MS ?? "9000", 10);
+  const useAccelerate = Boolean(configuredAccelerateUrl);
+  const runtimeUrl = useAccelerate
+    ? configuredAccelerateUrl!
+    : appendStatementTimeout(configuredDatabaseUrl, latestStatementTimeoutMs);
+  const replicaUrl = configuredReplicaUrl || runtimeUrl;
+
+  return { runtimeUrl, replicaUrl, useAccelerate };
+}
+
+let basePrisma: PrismaClient = buildPrismaClient(resolveDatabaseUrls().runtimeUrl);
+let basePrismaReplica: PrismaClient = buildPrismaClient(resolveDatabaseUrls().replicaUrl);
+let currentRuntimeUrl = resolveDatabaseUrls().runtimeUrl;
+let currentReplicaUrl = resolveDatabaseUrls().replicaUrl;
+let currentUseAccelerate = resolveDatabaseUrls().useAccelerate;
+
+applyPrismaClientMiddleware(basePrisma);
+applyPrismaClientMiddleware(basePrismaReplica);
 
 logger.info(
-  `[database] Runtime connection: ${useAccelerate ? "Prisma Accelerate (pooled)" : "direct PostgreSQL"}`,
+  `[database] Runtime connection: ${currentUseAccelerate ? "Prisma Accelerate (pooled)" : "direct PostgreSQL"}`,
 );
 logger.info(
   "[database] Migration connection: direct PostgreSQL via DATABASE_URL " +
     "(run prisma migrate against DATABASE_URL, never against PRISMA_ACCELERATE_URL)",
 );
-
-const basePrisma = new PrismaClient({
-  datasources: { db: { url: databaseUrl } },
-  log: [
-    { level: "query", emit: "event" },
-    { level: "error", emit: "stdout" },
-    { level: "warn", emit: "stdout" },
-  ],
-});
-
-const replicaUrl = config.databaseUrlReplica || databaseUrl;
-
-const basePrismaReplica = new PrismaClient({
-  datasources: { db: { url: replicaUrl } },
-  log: [
-    { level: "query", emit: "event" },
-    { level: "error", emit: "stdout" },
-    { level: "warn", emit: "stdout" },
-  ],
-});
-
-// Retry config for connection pool exhaustion (Prisma Accelerate)
-const MAX_RETRIES = 3;
-const BASE_BACKOFF_MS = 200;
 
 function isPoolExhaustionError(err: unknown): boolean {
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
@@ -108,108 +182,48 @@ function isPoolExhaustionError(err: unknown): boolean {
   return false;
 }
 
-// OTel: wrap every Prisma query in a span so traces link DB calls to parent spans
-basePrisma.$use(async (params, next) => {
-  const tracer = trace.getTracer("prisma");
-  const spanName = `prisma.${params.model ?? "raw"}.${params.action}`;
-  return tracer.startActiveSpan(spanName, async (span) => {
-    span.setAttributes({
-      "db.system": "postgresql",
-      "db.operation": params.action,
-      ...(params.model ? { "db.prisma.model": params.model } : {}),
-    });
-    try {
-      const result = await next(params);
-      span.setStatus({ code: SpanStatusCode.OK });
-      return result;
-    } catch (err) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
-      throw err;
-    } finally {
-      span.end();
-    }
+function refreshPrismaClientsIfNeeded(): void {
+  const resolved = resolveDatabaseUrls();
+  if (
+    resolved.runtimeUrl === currentRuntimeUrl &&
+    resolved.replicaUrl === currentReplicaUrl &&
+    resolved.useAccelerate === currentUseAccelerate
+  ) {
+    return;
+  }
+
+  logger.info("[database] Refreshing Prisma clients with updated connection settings", {
+    runtimeUrl: resolved.runtimeUrl,
+    replicaUrl: resolved.replicaUrl,
+    useAccelerate: resolved.useAccelerate,
   });
-});
 
-// #388: Track per-query acquisition + execution latency for Prometheus.
-// The "wait" component is estimated as the time before `next()` returns minus
-// the query execution time; since Prisma doesn't expose a direct wait signal,
-// we instrument total elapsed time labelled by model/action.
-basePrisma.$use(async (params, next) => {
-  const end = poolAcquireHistogram.startTimer({
-    model: params.model ?? "raw",
-    action: params.action,
+  const previousBasePrisma = basePrisma;
+  const previousReplicaPrisma = basePrismaReplica;
+
+  basePrisma = buildPrismaClient(resolved.runtimeUrl);
+  basePrismaReplica = buildPrismaClient(resolved.replicaUrl);
+  currentRuntimeUrl = resolved.runtimeUrl;
+  currentReplicaUrl = resolved.replicaUrl;
+  currentUseAccelerate = resolved.useAccelerate;
+
+  applyPrismaClientMiddleware(basePrisma);
+  applyPrismaClientMiddleware(basePrismaReplica);
+
+  void previousBasePrisma.$disconnect().catch((err: unknown) => {
+    logger.warn("[database] Failed to disconnect previous Prisma client", { error: err });
   });
-  try {
-    return await next(params);
-  } finally {
-    end();
-  }
-});
+  void previousReplicaPrisma.$disconnect().catch((err: unknown) => {
+    logger.warn("[database] Failed to disconnect previous Prisma replica client", { error: err });
+  });
 
-// Connection pool exhaustion retry middleware: retry with exponential backoff
-// when Prisma Accelerate returns P2024 (connection pool timeout).
-// Retries up to MAX_RETRIES-1 times (attempt 1 = first try, attempt 4 throws).
-basePrisma.$use(async (params, next) => {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await next(params);
-    } catch (err) {
-      if (!isPoolExhaustionError(err)) {
-        throw err;
-      }
-      // #388: count every pool exhaustion regardless of retry outcome
-      poolExhaustedCounter.inc();
-      if (attempt < MAX_RETRIES) {
-        lastError = err;
-        const backoff = BASE_BACKOFF_MS * 2 ** (attempt - 1);
-        logger.warn("Prisma connection pool exhausted, retrying", {
-          model: params.model,
-          action: params.action,
-          attempt,
-          maxRetries: MAX_RETRIES,
-          backoffMs: backoff,
-        });
-        await new Promise((r) => setTimeout(r, backoff));
-      } else {
-        throw err;
-      }
-    }
-  }
-  throw lastError;
-});
+  logger.info(
+    `[database] Runtime connection: ${currentUseAccelerate ? "Prisma Accelerate (pooled)" : "direct PostgreSQL"}`,
+  );
+}
 
-basePrismaReplica.$use(async (params, next) => {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await next(params);
-    } catch (err) {
-      if (!isPoolExhaustionError(err)) {
-        throw err;
-      }
-      if (attempt < MAX_RETRIES) {
-        lastError = err;
-        const backoff = BASE_BACKOFF_MS * 2 ** (attempt - 1);
-        logger.warn("Prisma replica connection pool exhausted, retrying", {
-          model: params.model,
-          action: params.action,
-          attempt,
-          maxRetries: MAX_RETRIES,
-          backoffMs: backoff,
-        });
-        await new Promise((r) => setTimeout(r, backoff));
-      } else {
-        throw err;
-      }
-    }
-  }
-  throw lastError;
-});
-
-export const prisma = useAccelerate ? basePrisma.$extends(withAccelerate()) : basePrisma;
-export const prismaReplica = useAccelerate
+export let prisma = currentUseAccelerate ? basePrisma.$extends(withAccelerate()) : basePrisma;
+export let prismaReplica = currentUseAccelerate
   ? basePrismaReplica.$extends(withAccelerate())
   : basePrismaReplica;
 
@@ -255,6 +269,9 @@ export async function connectWithRetry(): Promise<void> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      refreshPrismaClientsIfNeeded();
+      prisma = currentUseAccelerate ? basePrisma.$extends(withAccelerate()) : basePrisma;
+      prismaReplica = currentUseAccelerate ? basePrismaReplica.$extends(withAccelerate()) : basePrismaReplica;
       await Promise.all([basePrisma.$connect(), basePrismaReplica.$connect()]);
       if (attempt > 1) {
         logger.info("[database] Connected after retry", { attempt });

@@ -36,6 +36,7 @@ const trustProxyValue = process.env.TRUST_PROXY
   : 0;
 
 app.set("trust proxy", trustProxyValue);
+app.set("case sensitive routing", true);
 
 const MAX_REQUEST_BODY_SIZE = "1mb";
 const SUPPORTED_REQUEST_ENCODINGS = new Set(["identity", "gzip"]);

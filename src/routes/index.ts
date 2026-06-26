@@ -36,7 +36,7 @@ import weightDriftAuditRoutes from "./weightDriftAuditRoutes";
 import reportRoutes from "./reportRoutes";
 import kycValidatorRewardRoutes from "./kycValidatorRewardRoutes";
 
-const router: ReturnType<typeof Router> = Router();
+const router: ReturnType<typeof Router> = Router({ caseSensitive: true });
 
 // Shallow health check — always 200, no dependency probing (used by load balancers)
 router.get("/health", (_req, res) => {

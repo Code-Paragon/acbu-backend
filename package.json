@@ -4,10 +4,17 @@
   "packageManager": "pnpm@10.33.1",
   "engines": {
     "node": ">=20.0.0",
+    "npm": ">=10.0.0",
     "pnpm": ">=10.0.0"
   },
   "description": "ACBU Backend API Server",
   "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "prisma/schema.prisma",
+    "prisma/migrations/",
+    "README.md"
+  ],
   "scripts": {
     "dev": "nodemon",
     "build": "tsc -p tsconfig.build.json",
@@ -19,6 +26,7 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "jest --coverage",
     "test:coverage": "jest --coverage",
+    "test:ci": "jest --coverage --detectOpenHandles",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
@@ -26,9 +34,10 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node --transpile-only prisma/seed.ts",
     "backfill:org-limits": "ts-node --transpile-only prisma/backfillOrgTransactionContext.ts",
+    "backfill:kyc-encryption": "ts-node --transpile-only scripts/backfillKycEncryption.ts",
     "stellar:create-wallet": "ts-node --transpile-only scripts/create-stellar-wallet.ts",
     "compute:basket-weights": "ts-node --transpile-only scripts/compute-basket-weights.ts",
-    "postinstall": "prisma generate && tsc -p tsconfig.build.json"
+    "postinstall": "prisma generate"
   },
   "keywords": [
     "acbu",
@@ -80,12 +89,14 @@
     "nodemailer": "^9.0.1",
     "openai": "^6.32.0",
     "otplib": "^12.0.1",
+    "prom-client": "^15.1.3",
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
     "typescript": "^5.3.3",
     "uuid": "^14.0.1",
     "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^5.0.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -106,11 +117,21 @@
     "eslint-plugin-prettier": "^5.1.3",
     "jest": "^29.7.0",
     "nodemon": "^3.0.3",
+    "openapi-schema-validator": "^12.1.3",
     "prettier": "^3.2.4",
     "prisma": "^5.19.0",
     "supertest": "^7.2.2",
     "ts-jest": "^29.1.2",
     "ts-node": "^10.9.2",
     "zod-to-json-schema": "^3.25.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-xml-parser": ">=5.3.6",
+      "handlebars": ">=4.7.9",
+      "minimatch": ">=3.1.4",
+      "flatted": ">=3.4.2",
+      "path-to-regexp": ">=10.1.0"
+    }
   }
 }

@@ -35,6 +35,9 @@ export function createCorsMiddleware(allowedOrigins: readonly string[]) {
     origin: (origin, callback) => {
       const resolved = resolveCorsOrigin(origin, allowedOrigins);
       if (resolved === null) {
+        // No Origin header → non-browser / same-origin request (curl, server-to-server).
+        // CORS is a browser mechanism; passing through here does not expose the API to
+        // cross-origin browser requests because browsers always send an Origin header.
         callback(null, true);
         return;
       }

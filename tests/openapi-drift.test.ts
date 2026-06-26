@@ -1,11 +1,18 @@
+import fs from "fs";
+import path from "path";
 import { swaggerSpec } from "../src/config/swagger";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { routeSchemas } from "../src/controllers/schemas";
+import OpenAPISchemaValidator from "openapi-schema-validator";
 
 describe("OpenAPI Drift vs Implementation", () => {
   const paths = (swaggerSpec as any).paths || {};
   const schemaRegistry = routeSchemas as Record<string, any>;
   const errors: string[] = [];
+  const swaggerDocumentPath = path.resolve(__dirname, "../swagger.json");
+  const swaggerDocument = JSON.parse(
+    fs.readFileSync(swaggerDocumentPath, "utf8"),
+  );
 
   // Helper to normalize path for comparison
   const normalizePath = (path: string) => path.replace(/\/$/, "");
@@ -13,6 +20,13 @@ describe("OpenAPI Drift vs Implementation", () => {
   /**
    * CHECK 1: Every route in routeSchemas must be documented in Swagger
    */
+  it("should validate swagger.json against the OpenAPI 3.0 schema", () => {
+    const validator = new OpenAPISchemaValidator({ version: 3 });
+    const result = validator.validate(swaggerDocument);
+
+    expect(result.errors).toEqual([]);
+  });
+
   it("should ensure all registered route schemas are documented in OpenAPI", () => {
     for (const routeKey of Object.keys(schemaRegistry)) {
       const [method, path] = routeKey.split(" ");

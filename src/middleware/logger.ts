@@ -1,5 +1,3 @@
-import { Request, Response, NextFunction } from "express";
-import { logger } from "../config/logger";
 
 export const requestLogger = (
   req: Request,
@@ -11,6 +9,7 @@ export const requestLogger = (
   res.on("finish", () => {
     const duration = Date.now() - start;
     logger.info("HTTP Request", {
+      correlationId: req.correlationId,
       method: req.method,
       path: req.path,
       statusCode: res.statusCode,

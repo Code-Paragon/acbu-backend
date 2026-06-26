@@ -14,24 +14,11 @@ import {
   renderReserveAlertTemplate,
   renderInvestmentWithdrawalReadyTemplate,
 } from "../services/notification";
+import { parseIncomingMessage, deadLetterMessage, MessageValidationError } from "../utils/rabbitmq-validation";
+import type { OtpSend, Notification } from "../types/rabbitmq-schemas";
 
-interface OtpSendPayload {
-  channel: string;
-  to: string;
-  code: string;
-}
-
-interface NotificationPayload {
-  type: string;
-  [key: string]: unknown;
-}
-
-async function processOtpSend(payload: OtpSendPayload): Promise<void> {
+async function processOtpSend(payload: OtpSend): Promise<void> {
   const { channel, to, code } = payload;
-  if (!to || !code) {
-    logger.warn("OTP_SEND: missing to or code", { hasTo: !!to });
-    return;
-  }
   const body = renderOtpTemplate(code);
   if (channel === "email") {
     await sendEmail(to, "Your ACBU verification code", body);
@@ -43,7 +30,7 @@ async function processOtpSend(payload: OtpSendPayload): Promise<void> {
 }
 
 async function processNotification(
-  payload: NotificationPayload,
+  payload: Notification,
 ): Promise<void> {
   const { type } = payload;
   if (type === "reserve_alert") {
@@ -134,11 +121,22 @@ export async function startNotificationConsumer(): Promise<void> {
       if (!msg) return;
       const headers = msg.properties.headers ?? {};
       const retries = typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
+      
       try {
-        const payload = JSON.parse(msg.content.toString()) as OtpSendPayload;
-        await processOtpSend(payload);
+        // Validate OTP send message
+        const validatedPayload = parseIncomingMessage<OtpSend>(QUEUES.OTP_SEND, msg.content);
+        await processOtpSend(validatedPayload);
         ch.ack(msg);
       } catch (e) {
+        if (e instanceof MessageValidationError) {
+          logger.error("OTP_SEND validation failed, sending to DLQ", {
+            errors: e.validationErrors,
+          });
+          await deadLetterMessage(QUEUES.OTP_SEND, msg.content, `Validation failed: ${e.message}`);
+          ch.ack(msg);
+          return;
+        }
+
         logger.error("OTP_SEND consumer error", { error: e });
         if (retries >= MAX_RETRIES) {
           logger.error("OTP_SEND failed permanently, sending to DLQ", { retries });
@@ -162,13 +160,22 @@ export async function startNotificationConsumer(): Promise<void> {
       if (!msg) return;
       const headers = msg.properties.headers ?? {};
       const retries = typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
+      
       try {
-        const payload = JSON.parse(
-          msg.content.toString(),
-        ) as NotificationPayload;
-        await processNotification(payload);
+        // Validate notification message
+        const validatedPayload = parseIncomingMessage<Notification>(QUEUES.NOTIFICATIONS, msg.content);
+        await processNotification(validatedPayload);
         ch.ack(msg);
       } catch (e) {
+        if (e instanceof MessageValidationError) {
+          logger.error("NOTIFICATIONS validation failed, sending to DLQ", {
+            errors: e.validationErrors,
+          });
+          await deadLetterMessage(QUEUES.NOTIFICATIONS, msg.content, `Validation failed: ${e.message}`);
+          ch.ack(msg);
+          return;
+        }
+
         logger.error("NOTIFICATIONS consumer error", { error: e });
         if (retries >= MAX_RETRIES) {
           logger.error("NOTIFICATIONS failed permanently, sending to DLQ", { retries });
@@ -185,7 +192,7 @@ export async function startNotificationConsumer(): Promise<void> {
     { noAck: false },
   );
 
-  logger.info("Notification consumer started", {
+  logger.info("Notification consumer started with validation", {
     queues: [QUEUES.OTP_SEND, QUEUES.NOTIFICATIONS],
   });
 }

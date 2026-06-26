@@ -5,10 +5,8 @@ import type { ConsumeMessage } from "amqplib";
 import { connectRabbitMQ, QUEUES } from "../config/rabbitmq";
 import { logger } from "../config/logger";
 import { deliverWebhook } from "../services/webhook";
-
-interface WebhookJobPayload {
-  webhookId: string;
-}
+import { parseIncomingMessage, deadLetterMessage, MessageValidationError } from "../utils/rabbitmq-validation";
+import type { WebhookJob } from "../types/rabbitmq-schemas";
 
 const MAX_RETRIES = 5;
 
@@ -37,9 +35,9 @@ export async function startWebhookConsumer(): Promise<void> {
         typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
 
       try {
-        const body = JSON.parse(msg.content.toString()) as WebhookJobPayload;
-
-        const { webhookId } = body;
+        // Validate webhook message
+        const validatedPayload = parseIncomingMessage<WebhookJob>(QUEUES.WEBHOOKS, msg.content);
+        const { webhookId } = validatedPayload;
 
         if (!webhookId) {
           ch.ack(msg);
@@ -53,7 +51,7 @@ export async function startWebhookConsumer(): Promise<void> {
           return;
         }
 
-        //  Failed delivery
+        // Failed delivery
         if (result.terminal || retries >= MAX_RETRIES) {
           logger.error("Webhook failed permanently", {
             webhookId,
@@ -81,6 +79,15 @@ export async function startWebhookConsumer(): Promise<void> {
 
         ch.ack(msg);
       } catch (error) {
+        if (error instanceof MessageValidationError) {
+          logger.error("Webhook validation failed, sending to DLQ", {
+            errors: error.validationErrors,
+          });
+          await deadLetterMessage(QUEUES.WEBHOOKS, msg.content, `Validation failed: ${error.message}`);
+          ch.ack(msg);
+          return;
+        }
+
         logger.error("Webhook consumer error", { error });
 
         if (retries >= MAX_RETRIES) {
@@ -109,7 +116,7 @@ export async function startWebhookConsumer(): Promise<void> {
     { noAck: false },
   );
 
-  logger.info("Webhook consumer started", {
+  logger.info("Webhook consumer started with validation", {
     queue: QUEUES.WEBHOOKS,
   });
 }

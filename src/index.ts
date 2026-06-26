@@ -32,6 +32,56 @@ import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
 const app: express.Express = express();
 const MAX_REQUEST_BODY_SIZE = "1mb";
 
+/**
+ * Middleware to block GraphQL-like queries and introspection attempts
+ * to prevent attackers from probing the API schema.
+ */
+function blockGraphQLQueries(req: Request, _res: Response, next: NextFunction): void {
+  const path = req.path.toLowerCase();
+  const contentType = req.headers["content-type"]?.toLowerCase() || "";
+
+  // Block common GraphQL paths
+  const graphqlPaths = ["/graphql", "/graphiql", "/playground", "/graphql/playground", "/v1/graphql"];
+  if (graphqlPaths.includes(path)) {
+    logger.warn("Blocked GraphQL endpoint access attempt", {
+      path: req.path,
+      ip: req.ip,
+      method: req.method,
+    });
+    throw new AppError("Not found", 404, ErrorCodes.NOT_FOUND);
+  }
+
+  // Block introspection queries in request body (JSON)
+  if (req.method === "POST" && contentType.includes("application/json") && req.body) {
+    const bodyStr = JSON.stringify(req.body).toLowerCase();
+    // Check for GraphQL introspection patterns (even if someone tries to POST to a REST endpoint)
+    if (bodyStr.includes("__schema") || bodyStr.includes("__type") || bodyStr.includes("introspection")) {
+      logger.warn("Blocked GraphQL introspection attempt", {
+        path: req.path,
+        ip: req.ip,
+        method: req.method,
+      });
+      throw new AppError("Invalid request", 400, ErrorCodes.BAD_REQUEST);
+    }
+  }
+
+  // Block query parameters with GraphQL-like patterns
+  const query = req.query;
+  if (query && typeof query === "object") {
+    const queryStr = JSON.stringify(query).toLowerCase();
+    if (queryStr.includes("__schema") || queryStr.includes("__type") || queryStr.includes("introspection")) {
+      logger.warn("Blocked GraphQL introspection via query params", {
+        path: req.path,
+        ip: req.ip,
+        method: req.method,
+      });
+      throw new AppError("Invalid request", 400, ErrorCodes.BAD_REQUEST);
+    }
+  }
+
+  next();
+}
+
 // Security middleware
 app.use(
   helmet({
@@ -50,6 +100,9 @@ app.use(
   }),
 );
 app.use(corsMiddleware);
+
+// Block GraphQL attempts early in the middleware chain
+app.use(blockGraphQLQueries);
 
 // Compress all JSON/text responses to reduce bandwidth on large payloads
 app.use(compression());
@@ -120,6 +173,11 @@ if (config.nodeEnv !== "production") {
   // Raw JSON spec for tooling / CI spec-drift checks (#292)
   app.get("/api-docs.json", (_req, res) => {
     res.json(swaggerSpec);
+  });
+} else {
+  // In production, redirect GraphQL-like paths to 404 explicitly
+  app.use(["/graphql", "/graphiql", "/playground", "/graphql/playground"], (req, res) => {
+    res.status(404).json({ error: { code: "NOT_FOUND", message: "Not found" } });
   });
 }
 

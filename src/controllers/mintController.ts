@@ -35,8 +35,6 @@ import {
   contractNumberToDecimal,
   calculateFee,
 } from "../utils/decimalUtils";
-import { convertLocalToUsd } from "../services/rates";
-import { extractIdempotencyKey } from "../utils/idempotency";
 
 const MINT_FEE_BPS = 30; // 0.3%
 
@@ -342,23 +340,6 @@ export async function depositFromBasketCurrency(
 
     await assertUserWalletAddress(userId, wallet_address);
 
-    if (fintech_tx_id) {
-      const existingTx = await prisma.transaction.findUnique({
-        where: { idempotencyKey: fintech_tx_id },
-      });
-
-      if (existingTx) {
-        throw new AppError(
-          "Duplicate fintech_tx_id detected",
-          409,
-          "DUPLICATE_FINTECH_TX_ID",
-          {
-            fintech_tx_id,
-          },
-        );
-      }
-    }
-
     // SECURITY: Always enforce circuit breaker and deposit limits
     // Previously these checks were skipped when req.audience was undefined,
     // allowing bypass of critical financial controls via direct /mint/deposit route
@@ -382,25 +363,6 @@ export async function depositFromBasketCurrency(
     // 2. Calculate ACBU equivalent: localAmount / localRate
     // 3. Convert to USD: acbuAmount * acbuUsdRate
     const amountUsd = await convertLocalToUsd(amountNum, currency);
-    
-    await checkDepositLimits(
-      audience,
-      amountUsd,
-      userId,
-      req.apiKey?.organizationId ?? null,
-    );
-    const tx = await prisma.transaction.create({
-      data: {
-        userId: req.apiKey?.userId ?? undefined,
-        organizationId: req.apiKey?.organizationId ?? undefined,
-        type: "mint",
-        status: "pending",
-        localCurrency: currency,
-        localAmount: new Decimal(amountDecimal),
-        rateSnapshot: {
-          deposit_currency: currency,
-          amount: amountDecimal.toNumber(),
-          timestamp: new Date().toISOString(),
 
     await checkDepositLimits(
       audience,

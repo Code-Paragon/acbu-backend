@@ -13,6 +13,7 @@ import {
   savingsWithdrawSchema,
   savingsPositionsSchema,
 } from "../validators/savingsValidator";
+import { formatIsoDateInTimeZone } from "../utils/dateUtils";
 
 export async function postSavingsDeposit(
   req: Request,
@@ -59,7 +60,7 @@ export async function postSavingsWithdraw(
         "Savings withdrawals are not allowed on this date. Next available withdrawal date below.",
         403,
         "SAVINGS_LOCK_DATE",
-        { next_available_withdrawal_date: nextDate.toISOString().slice(0, 10) },
+        { next_available_withdrawal_date: formatIsoDateInTimeZone(nextDate) },
       );
     }
 
@@ -118,7 +119,7 @@ export async function getSavingsPositions(
       balance,
       apy_percent: apy,
       next_available_withdrawal_date: isSavingsLockDate()
-        ? nextDate.toISOString().slice(0, 10)
+        ? formatIsoDateInTimeZone(nextDate)
         : null,
     });
   } catch (e) {
@@ -135,7 +136,7 @@ export async function getNextWithdrawalDate(
   try {
     const nextDate = getNextSavingsWithdrawalDate();
     res.status(200).json({
-      next_available_withdrawal_date: nextDate.toISOString().slice(0, 10),
+      next_available_withdrawal_date: formatIsoDateInTimeZone(nextDate),
       is_locked_today: isSavingsLockDate(),
     });
   } catch (e) {

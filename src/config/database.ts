@@ -146,7 +146,7 @@ const BASE_BACKOFF_MS = 200;
 function resolveDatabaseUrls(): { runtimeUrl: string; replicaUrl: string; useAccelerate: boolean } {
   const configuredDatabaseUrl = process.env.DATABASE_URL || config.databaseUrl;
   const configuredAccelerateUrl = process.env.PRISMA_ACCELERATE_URL || config.prismaAccelerateUrl;
-  const configuredReplicaUrl = process.env.DATABASE_URL_REPLICA || config.databaseUrlReplica;
+  const configuredReplicaUrl = process.env.DATABASE_URL_REPLICA || config.databaseUrlReplica || "";
 
   const latestStatementTimeoutMs = parseInt(process.env.DB_STATEMENT_TIMEOUT_MS ?? "9000", 10);
   const useAccelerate = Boolean(configuredAccelerateUrl);
@@ -265,6 +265,25 @@ export async function connectWithRetry(): Promise<void> {
   const maxRetries = config.database.connectMaxRetries;
   const baseBackoff = config.database.connectBaseBackoffMs;
   const maxBackoff = config.database.connectMaxBackoffMs;
+
+  // #381: WAL backup guard — refuse to start in production without confirmed WAL archiving.
+  // Point-in-time recovery is impossible without WAL segments being streamed off-host.
+  if (config.nodeEnv === "production" && !config.walBackup.configured) {
+    throw new Error(
+      "[database] WAL backup is not configured. " +
+        "Set PG_WAL_BACKUP_CONFIGURED=true once WAL archiving / continuous backup is enabled " +
+        "(e.g. pgBackRest, Barman, AWS RDS automated backups, Supabase PITR). " +
+        "A storage failure on the primary will cause permanent data loss without WAL archives.",
+    );
+  }
+
+  if (config.walBackup.configured) {
+    logger.info("[database] WAL backup: configured", {
+      provider: config.walBackup.provider || "unspecified",
+    });
+  } else {
+    logger.warn("[database] WAL backup: NOT configured — point-in-time recovery unavailable");
+  }
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {

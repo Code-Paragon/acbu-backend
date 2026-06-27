@@ -14,6 +14,7 @@
 import jwt from "jsonwebtoken";
 import { config } from "../config/env";
 import { logger } from "../config/logger";
+import { EXPECTED_JWT_TYP, verifyJwt } from "../middleware/authMiddleware";
 
 // ---------------------------------------------------------------------------
 // JTI deny-list — fixes #288
@@ -102,6 +103,7 @@ export function signChallengeToken(userId: string): string {
   return jwt.sign(payload, secret, {
     expiresIn: CHALLENGE_EXPIRY,
     jwtid: `chal_${userId}_${Date.now()}`, // Unique token ID for tracking
+    header: { typ: EXPECTED_JWT_TYP, alg: "HS256" },
   });
 }
 
@@ -115,7 +117,7 @@ export function verifyChallengeToken(token: string): ChallengePayload {
   const secret = getChallengeSecret();
 
   try {
-    const decoded = jwt.verify(token, secret, {
+    const decoded = verifyJwt(token, secret, {
       audience: CHALLENGE_AUDIENCE,
       issuer: CHALLENGE_ISSUER,
       clockTolerance: config.jwtClockToleranceSeconds,

@@ -6,8 +6,8 @@ import {
   ContractEvent,
 } from "../services/stellar/eventListener";
 import { contractAddresses } from "../config/contracts";
-import { connectRabbitMQ, QUEUES, assertQueueWithDLQ } from "../config/rabbitmq";
 import { logger } from "../config/logger";
+import { lendingPoolEventProducer } from "./producers";
 
 const LENDING_POOL_EFFECT_TYPES = [
   "contract_credited",
@@ -26,27 +26,26 @@ export async function startLendingPoolEventListener(): Promise<void> {
 
   const handler = async (event: ContractEvent): Promise<void> => {
     try {
-      const ch = await connectRabbitMQ();
-      await assertQueueWithDLQ(QUEUES.ACBU_LENDING_POOL_EVENTS);
-      ch.sendToQueue(
-        QUEUES.ACBU_LENDING_POOL_EVENTS,
-        Buffer.from(
-          JSON.stringify({
-            contractId: event.contractId,
-            type: event.type,
-            data: event.data,
-            ledger: event.ledger,
-            timestamp: event.timestamp,
-          }),
-        ),
-        { persistent: true },
-      );
-      logger.debug("Lending pool event enqueued", {
+      const validatedEvent = {
+        contractId: event.contractId,
+        type: event.type,
+        data: event.data || {},
+        ledger: event.ledger,
+        timestamp: event.timestamp || new Date().toISOString(),
+      };
+
+      await lendingPoolEventProducer.publish(validatedEvent);
+
+      logger.debug("Lending pool event enqueued with validation", {
         type: event.type,
         ledger: event.ledger,
       });
-    } catch (e) {
-      logger.error("Lending pool event enqueue failed", { error: e });
+    } catch (error) {
+      logger.error("Lending pool event enqueue failed", {
+        error: error instanceof Error ? error.message : String(error),
+        eventType: event.type,
+        ledger: event.ledger,
+      });
     }
   };
 
@@ -55,7 +54,7 @@ export async function startLendingPoolEventListener(): Promise<void> {
     LENDING_POOL_EFFECT_TYPES,
     handler,
   );
-  logger.info("Lending pool event listener registered", {
+  logger.info("Lending pool event listener registered with validation", {
     contractId,
     effectTypes: LENDING_POOL_EFFECT_TYPES,
   });

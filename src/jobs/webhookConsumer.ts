@@ -6,10 +6,8 @@ import { connectRabbitMQ, QUEUES } from "../config/rabbitmq";
 import { getQueueMaxRetries } from "./queueConfig";
 import { logger } from "../config/logger";
 import { deliverWebhook } from "../services/webhook";
-
-interface WebhookJobPayload {
-  webhookId: string;
-}
+import { parseIncomingMessage, deadLetterMessage, MessageValidationError } from "../utils/rabbitmq-validation";
+import type { WebhookJob } from "../types/rabbitmq-schemas";
 
 const MAX_RETRIES = getQueueMaxRetries(QUEUES.WEBHOOKS);
 
@@ -38,9 +36,9 @@ export async function startWebhookConsumer(): Promise<void> {
         typeof headers["x-retries"] === "number" ? headers["x-retries"] : 0;
 
       try {
-        const body = JSON.parse(msg.content.toString()) as WebhookJobPayload;
-
-        const { webhookId } = body;
+        // Validate webhook message
+        const validatedPayload = parseIncomingMessage<WebhookJob>(QUEUES.WEBHOOKS, msg.content);
+        const { webhookId } = validatedPayload;
 
         if (!webhookId) {
           ch.ack(msg);
@@ -54,7 +52,7 @@ export async function startWebhookConsumer(): Promise<void> {
           return;
         }
 
-        //  Failed delivery
+        // Failed delivery
         if (result.terminal || retries >= MAX_RETRIES) {
           logger.error("Webhook failed permanently", { webhookId, retries });
           ch.sendToQueue(QUEUES.WEBHOOKS_DLQ, msg.content, { persistent: true });
@@ -74,6 +72,15 @@ export async function startWebhookConsumer(): Promise<void> {
         }, backoffMs);
         logger.info("Webhook retry scheduled", { webhookId, retries, backoffMs });
       } catch (error) {
+        if (error instanceof MessageValidationError) {
+          logger.error("Webhook validation failed, sending to DLQ", {
+            errors: error.validationErrors,
+          });
+          await deadLetterMessage(QUEUES.WEBHOOKS, msg.content, `Validation failed: ${error.message}`);
+          ch.ack(msg);
+          return;
+        }
+
         logger.error("Webhook consumer error", { error });
 
         ch.ack(msg);
@@ -95,7 +102,7 @@ export async function startWebhookConsumer(): Promise<void> {
     { noAck: false },
   );
 
-  logger.info("Webhook consumer started", {
+  logger.info("Webhook consumer started with validation", {
     queue: QUEUES.WEBHOOKS,
   });
 }

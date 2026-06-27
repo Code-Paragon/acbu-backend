@@ -47,6 +47,7 @@ model User {
   passcodeHash           String?          @map("passcode_hash") @db.VarChar(255)
   encryptedStellarSecret String?          @map("encrypted_stellar_secret") @db.VarChar(512)
   keyEncryptionHint      String?          @map("key_encryption_hint") @db.VarChar(50)
+  walletVersion          Int              @default(0) @map("wallet_version")
   twoFaMethod            String?          @map("two_fa_method") @db.VarChar(20)
   totpSecretEncrypted    String?          @map("totp_secret_encrypted") @db.VarChar(512)
   actorType              String           @default("retail") @map("actor_type") @db.VarChar(20)

@@ -5,6 +5,10 @@ import { createTransfer } from "../transfer/transferService";
 import { logger, logFinancialEvent } from "../../config/logger";
 import { CreateSalaryBatchParams, CreateSalaryBatchResult } from "./types";
 import { AppError } from "../../middleware/errorHandler";
+import {
+  getInitialDailyMidnight,
+  getNextDailyMidnight,
+} from "../../utils/dateUtils";
 import crypto from "crypto";
 
 /**
@@ -288,14 +292,11 @@ export async function triggerSchedule(scheduleId: string): Promise<void> {
     })),
   });
 
-  // Calculate next run (crude implementation)
-  const nextRun = new Date();
-  if (schedule.cron === "0 0 * * *") {
-    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
-    nextRun.setUTCHours(0, 0, 0, 0);
-  } else {
-    nextRun.setUTCMinutes(nextRun.getUTCMinutes() + 1); // Default to 1 min for testing
-  }
+  // Calculate next run using business timezone midnight (#408)
+  const nextRun =
+    schedule.cron === "0 0 * * *"
+      ? getNextDailyMidnight(new Date())
+      : new Date(Date.now() + 60_000);
 
   await prisma.salarySchedule.update({
     where: { id: scheduleId },
@@ -331,14 +332,10 @@ export async function createSalarySchedule(params: {
     throw new AppError("Invalid cron expression", 400);
   }
 
-  // Set initial nextRunAt
-  const nextRun = new Date();
-  if (cron === "0 0 * * *") {
-    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
-    nextRun.setUTCHours(0, 0, 0, 0);
-  } else {
-    nextRun.setUTCMinutes(nextRun.getUTCMinutes() + 1);
-  }
+  const nextRun =
+    cron === "0 0 * * *"
+      ? getInitialDailyMidnight(new Date())
+      : new Date(Date.now() + 60_000);
 
   const schedule = await prisma.salarySchedule.create({
     data: {

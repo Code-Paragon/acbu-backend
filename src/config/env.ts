@@ -39,6 +39,7 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
     .default("info"),
+  BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
   CORS_ORIGIN: z.string().optional(),
   CDN_URL: z.string().url().optional(),
 
@@ -54,6 +55,19 @@ const envSchema = z.object({
   DB_CONNECT_MAX_RETRIES: z.coerce.number().int().min(1).default(8),
   DB_CONNECT_BASE_BACKOFF_MS: z.coerce.number().int().min(1).default(250),
   DB_CONNECT_MAX_BACKOFF_MS: z.coerce.number().int().min(1).default(10000),
+
+  // #381: WAL backup configuration guard.
+  // Set to "true" once WAL archiving / continuous backup is enabled on the
+  // database host (e.g. pgBackRest, Barman, AWS RDS automated backups, Supabase
+  // PITR, or any provider that streams WAL segments off-host).
+  // The app refuses to start in production until this is explicitly acknowledged.
+  PG_WAL_BACKUP_CONFIGURED: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
+  // Human-readable label used in boot logs (e.g. "pgbackrest", "rds-automated", "supabase-pitr").
+  PG_WAL_BACKUP_PROVIDER: z.string().optional(),
 
   // #436: Memory leak detection thresholds.
   // MEMORY_LEAK_THRESHOLD_PCT — warn when heapUsed crosses this % of heap_size_limit (default 85).
@@ -128,9 +142,52 @@ export const config = {
     10,
   ),
 
+  // Redis cache (Sentinel / standalone)
+  redis: {
+    url: process.env.REDIS_URL || "",
+    sentinels: (() => {
+      const raw = process.env.REDIS_SENTINELS || "";
+      if (!raw) return [];
+      return raw
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => {
+          const [host, port] = entry.split(":");
+          return {
+            host,
+            port: parseInt(port || "26379", 10),
+          };
+        });
+    })(),
+    sentinelName: process.env.REDIS_SENTINEL_NAME || "",
+    password: process.env.REDIS_PASSWORD || "",
+    maxRetriesPerRequest: parseInt(
+      process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3",
+      10,
+    ),
+    readonlyRetryAttempts: parseInt(
+      process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3",
+      10,
+    ),
+    readonlyRetryDelayMs: parseInt(
+      process.env.REDIS_READONLY_RETRY_DELAY_MS || "100",
+      10,
+    ),
+  },
+
   // Logging
   logLevel: env.LOG_LEVEL,
+  // Per-transport levels keep debug noise out of production aggregators (#398).
+  logConsoleLevel:
+    env.LOG_LEVEL_CONSOLE ??
+    (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+  logFileLevel:
+    env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFile: process.env.LOG_FILE || "logs/app.log",
+
+  // Business calendar timezone for salary runs and withdrawal windows (#408)
+  businessTimeZone: env.BUSINESS_TIMEZONE,
 
   // Fintech APIs
   flutterwave: {
@@ -303,8 +360,21 @@ export const config = {
 
   // Notifications (email / SMS)
   notification: {
-    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as "sendgrid" | "ses" | "log",
+    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as
+      | "sendgrid"
+      | "ses"
+      | "smtp"
+      | "log",
     emailFrom: process.env.NOTIFICATION_FROM_EMAIL || "noreply@acbu.io",
+    smtp: {
+      host: process.env.SMTP_HOST || "",
+      port: parseInt(process.env.SMTP_PORT || "587", 10),
+      secure: process.env.SMTP_SECURE === "true",
+      user: process.env.SMTP_USER || "",
+      pass: process.env.SMTP_PASS || "",
+      maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS || "5", 10),
+      maxMessages: parseInt(process.env.SMTP_MAX_MESSAGES || "100", 10),
+    },
     sendgridApiKey: process.env.SENDGRID_API_KEY || "",
     sesRegion: process.env.AWS_REGION || process.env.AWS_SES_REGION || "us-east-1",
     sesAccessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
@@ -402,9 +472,22 @@ export const config = {
     connectMaxBackoffMs: env.DB_CONNECT_MAX_BACKOFF_MS,
   },
 
+  // #381: WAL / continuous backup configuration
+  walBackup: {
+    configured: env.PG_WAL_BACKUP_CONFIGURED === "true",
+    provider: env.PG_WAL_BACKUP_PROVIDER || "",
+  },
+
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)
   corsOrigin: parseCorsOrigins(env.CORS_ORIGIN, env.NODE_ENV),
 
   // CDN — when set, DNS prefetch is enabled so browsers can resolve the CDN domain early
   cdnUrl: env.CDN_URL ?? null,
+
+  // #436: Memory leak detection configuration
+  memory: {
+    leakThresholdPct: env.MEMORY_LEAK_THRESHOLD_PCT,
+    checkIntervalMs: env.MEMORY_CHECK_INTERVAL_MS,
+    heapDumpDir: env.HEAP_DUMP_DIR,
+  },
 };

@@ -10,6 +10,7 @@
   "semanticCommitType": "chore",
   "semanticCommitScope": "deps",
   "labels": ["dependencies"],
+  "timezone": "Etc/UTC",
   "schedule": ["before 5am on monday"],
   "packageRules": [
     {

@@ -23,11 +23,31 @@ const mockPrismaClient = () => ({
   $extends: jest.fn().mockReturnThis(),
 });
 
+/** Load database module in an isolated module registry with current process.env. */
+async function loadDatabase(): Promise<{ connectWithRetry: () => Promise<void> }> {
+  return new Promise((resolve, reject) => {
+    jest.isolateModules(() => {
+      try {
+        jest.doMock("@prisma/client", () => ({
+          PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
+          Prisma: { PrismaClientKnownRequestError: class {} },
+        }));
+        jest.doMock("@prisma/extension-accelerate", () => ({
+          withAccelerate: jest.fn(() => ({})),
+        }));
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        resolve(require("../src/config/database"));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
 describe("#381 WAL backup guard", () => {
   const ORIGINAL = process.env;
 
   beforeEach(() => {
-    jest.resetModules();
     process.env = { ...ORIGINAL, ...REQUIRED_ENV };
   });
 
@@ -37,65 +57,28 @@ describe("#381 WAL backup guard", () => {
 
   it("throws in production when PG_WAL_BACKUP_CONFIGURED is not set", async () => {
     delete process.env.PG_WAL_BACKUP_CONFIGURED;
-
-    // Mock PrismaClient so no real DB connection is attempted
-    jest.mock("@prisma/client", () => ({
-      PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
-      Prisma: { PrismaClientKnownRequestError: class {} },
-    }));
-    jest.mock("@prisma/extension-accelerate", () => ({
-      withAccelerate: jest.fn(() => ({})),
-    }));
-
-    const { connectWithRetry } = require("../src/config/database");
+    const { connectWithRetry } = await loadDatabase();
     await expect(connectWithRetry()).rejects.toThrow(/WAL backup is not configured/);
   });
 
   it("throws in production when PG_WAL_BACKUP_CONFIGURED=false", async () => {
     process.env.PG_WAL_BACKUP_CONFIGURED = "false";
-
-    jest.mock("@prisma/client", () => ({
-      PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
-      Prisma: { PrismaClientKnownRequestError: class {} },
-    }));
-    jest.mock("@prisma/extension-accelerate", () => ({
-      withAccelerate: jest.fn(() => ({})),
-    }));
-
-    const { connectWithRetry } = require("../src/config/database");
+    const { connectWithRetry } = await loadDatabase();
     await expect(connectWithRetry()).rejects.toThrow(/WAL backup is not configured/);
   });
 
   it("connects successfully in production when PG_WAL_BACKUP_CONFIGURED=true", async () => {
     process.env.PG_WAL_BACKUP_CONFIGURED = "true";
     process.env.PG_WAL_BACKUP_PROVIDER = "pgbackrest";
-
-    jest.mock("@prisma/client", () => ({
-      PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
-      Prisma: { PrismaClientKnownRequestError: class {} },
-    }));
-    jest.mock("@prisma/extension-accelerate", () => ({
-      withAccelerate: jest.fn(() => ({})),
-    }));
-
-    const { connectWithRetry } = require("../src/config/database");
+    const { connectWithRetry } = await loadDatabase();
     await expect(connectWithRetry()).resolves.toBeUndefined();
   });
 
   it("does not throw in development when PG_WAL_BACKUP_CONFIGURED is not set", async () => {
     process.env.NODE_ENV = "development";
     delete process.env.PG_WAL_BACKUP_CONFIGURED;
-    delete process.env.PRISMA_ACCELERATE_URL; // not required in dev
-
-    jest.mock("@prisma/client", () => ({
-      PrismaClient: jest.fn().mockImplementation(mockPrismaClient),
-      Prisma: { PrismaClientKnownRequestError: class {} },
-    }));
-    jest.mock("@prisma/extension-accelerate", () => ({
-      withAccelerate: jest.fn(() => ({})),
-    }));
-
-    const { connectWithRetry } = require("../src/config/database");
+    delete process.env.PRISMA_ACCELERATE_URL;
+    const { connectWithRetry } = await loadDatabase();
     await expect(connectWithRetry()).resolves.toBeUndefined();
   });
 });

@@ -8,36 +8,57 @@ import {
   getReadyInvestmentWithdrawalBatch,
   READY_WITHDRAWAL_STATUSES,
 } from "../services/investment/withdrawalTimingService";
+import { retryWithBackoff } from "../utils/retry";
 
 export async function processInvestmentWithdrawalAvailability(): Promise<void> {
   const { trustedNow, records } = await getReadyInvestmentWithdrawalBatch();
   for (const r of records) {
     try {
-      const transition = await prisma.investmentWithdrawalRequest.updateMany({
-        where: {
-          id: r.id,
-          status: { in: [...READY_WITHDRAWAL_STATUSES] },
-          availableAt: { lte: trustedNow },
+      const transition = await retryWithBackoff<{ count: number }>(
+        () =>
+          prisma.investmentWithdrawalRequest.updateMany({
+            where: {
+              id: r.id,
+              status: { in: [...READY_WITHDRAWAL_STATUSES] },
+              availableAt: { lte: trustedNow },
+            },
+            data: { status: "available", notifiedAt: trustedNow },
+          }),
+        {
+          attempts: 3,
+          initialDelayMs: 100,
+          onRetry: (error, attempt, delayMs) =>
+            logger.warn("Retrying investment withdrawal update", {
+              requestId: r.id,
+              attempt,
+              delayMs,
+              error,
+            }),
         },
-        data: { status: "available", notifiedAt: trustedNow },
-      });
+      );
       if (transition.count === 0) {
-        logger.info(
-          "Investment withdrawal already processed or no longer ready",
-          {
-            requestId: r.id,
-          },
-        );
+        logger.info("Investment withdrawal already processed or no longer ready", {
+          requestId: r.id,
+        });
         continue;
       }
 
       const amountAcbu = r.amountAcbu.toNumber();
       if (r.userId || r.organizationId) {
-        await publishInvestmentWithdrawalReady(
-          r.userId,
-          amountAcbu,
-          r.organizationId,
-          trustedNow,
+        await retryWithBackoff(
+          () =>
+            publishInvestmentWithdrawalReady(r.userId, amountAcbu, r.organizationId, trustedNow),
+          {
+            attempts: 3,
+            initialDelayMs: 100,
+            onRetry: (error, attempt, delayMs) =>
+              logger.warn("Retrying investment withdrawal notification", {
+                requestId: r.id,
+                attempt,
+                delayMs,
+                error,
+              }),
+          },
         );
       }
       logger.info("Investment withdrawal marked available and notified", {

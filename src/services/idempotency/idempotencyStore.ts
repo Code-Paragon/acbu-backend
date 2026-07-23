@@ -133,14 +133,12 @@ export async function resolveIdempotencyKey<T>(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
 
-  await db
-    .collection<IdempotencyRecord<T>>(COLLECTION)
-    .updateOne(
-      { key },
-      {
-        $set: { status: "resolved" as const, result, expiresAt },
-        $setOnInsert: { key, createdAt: now },
-      },
-      { upsert: true },
-    );
+  await db.collection<IdempotencyRecord<T>>(COLLECTION).updateOne(
+    { key },
+    {
+      $set: { status: "resolved" as const, result, expiresAt },
+      $setOnInsert: { key, createdAt: now },
+    },
+    { upsert: true },
+  );
 }

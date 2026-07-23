@@ -37,6 +37,7 @@ import {
   resolveIdempotencyKey,
   ensureIdempotencyIndex,
 } from "../../src/services/idempotency/idempotencyStore";
+import { logger } from "../../src/config/logger";
 
 describe("idempotencyStore", () => {
   beforeEach(() => {
@@ -102,9 +103,7 @@ describe("idempotencyStore", () => {
       const dbError = new Error("MongoDB connection timeout");
       findOneAndUpdateMock.mockRejectedValueOnce(dbError);
 
-      await expect(acquireIdempotencyKey("key-4")).rejects.toThrow(
-        "MongoDB connection timeout",
-      );
+      await expect(acquireIdempotencyKey("key-4")).rejects.toThrow("MongoDB connection timeout");
 
       expect(findOneAndUpdateMock).toHaveBeenCalledTimes(1);
     });
@@ -149,9 +148,7 @@ describe("idempotencyStore", () => {
       const dbError = new Error("MongoDB write concern timeout");
       updateOneMock.mockRejectedValueOnce(dbError);
 
-      await expect(resolveIdempotencyKey("key-7", { ok: true })).rejects.toThrow(
-        "MongoDB write concern timeout",
-      );
+      await expect(resolveIdempotencyKey("key-7", { ok: true })).rejects.toThrow("MongoDB write concern timeout");
 
       expect(updateOneMock).toHaveBeenCalledTimes(1);
     });
@@ -173,7 +170,6 @@ describe("idempotencyStore", () => {
       // Must not throw — startup should not be blocked by this
       await expect(ensureIdempotencyIndex()).resolves.toBeUndefined();
 
-      const { logger } = require("../../src/config/logger");
       expect(logger.warn).toHaveBeenCalledWith(
         "Failed to create idempotency indexes",
         expect.objectContaining({ err: expect.any(Error) }),

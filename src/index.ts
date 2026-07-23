@@ -1,4 +1,5 @@
-import "dotenv/config";
+// Load environment variables first (handles dotenv loading with proper order)
+import "./config/env";
 
 import { initTracing } from "./config/tracing";
 initTracing();

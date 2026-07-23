@@ -21,6 +21,10 @@ This file documents the environment variables required by the ACBU backend and t
   - When set, the app uses Prisma Accelerate for runtime queries.
   - Must start with `prisma://` or `prisma+postgres://`.
   - In production, this variable is required.
+- `PRISMA_MIGRATION_HISTORY_REPLICATED`
+  - Defaults to `false`.
+  - In production, set to `true` only after verifying `_prisma_migrations` is replicated to failover targets.
+  - The app refuses to run startup migrations in production until this is explicitly acknowledged.
 
 ## Optional and configurable variables
 
@@ -154,4 +158,5 @@ This file documents the environment variables required by the ACBU backend and t
 - In production, `PRISMA_ACCELERATE_URL` is required.
 - `DATABASE_URL` should always be a direct PostgreSQL URL for migrations.
 - `PRISMA_ACCELERATE_URL` should be used for runtime database queries when set.
+- `PRISMA_MIGRATION_HISTORY_REPLICATED=true` confirms promoted replicas retain Prisma migration history.
 - If you need the exact runtime schema, refer to `src/config/env.ts`.

@@ -99,6 +99,10 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL)
   throw new Error("Missing required environment variable: PRISMA_ACCELERATE_URL");
 }
 
+const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "change-me-in-production";
+
+if (parsed.data.NODE_ENV === "production" && s3ScanWebhookSecret === "change-me-in-production") {
+  throw new Error("Missing required environment variable: S3_SCAN_WEBHOOK_SECRET");
 // #382: Fintech partner keys must never be absent in production — an empty
 // Authorization header would be silently accepted by axios and only fail at
 // the first live API call, making the error hard to trace.  Fail at boot
@@ -231,7 +235,7 @@ export const config = {
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || "",
     uploadUrlTtlSeconds: parseInt(process.env.S3_UPLOAD_URL_TTL_SECONDS || "900", 10),
     downloadUrlTtlSeconds: parseInt(process.env.S3_DOWNLOAD_URL_TTL_SECONDS || "300", 10),
-    scanWebhookSecret: process.env.S3_SCAN_WEBHOOK_SECRET || "",
+    scanWebhookSecret: s3ScanWebhookSecret,
   },
   fintech: {
     currencyProviders: ((): Record<string, string> => {

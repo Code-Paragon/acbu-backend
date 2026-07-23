@@ -1,5 +1,13 @@
 describe("env validation", () => {
   const ORIGINAL = process.env;
+  const REQUIRED_ENV = {
+    DATABASE_URL: "postgresql://u:p@localhost:5432/db",
+    MONGODB_URI: "mongodb://localhost:27017/db",
+    RABBITMQ_URL: "amqp://localhost:5672",
+    JWT_SECRET: "test-secret",
+    PRISMA_ACCELERATE_URL: "prisma://accelerate.prisma-data.net/?api_key=test",
+    CORS_ORIGIN: "https://app.acbu.io",
+  };
 
   beforeEach(() => {
     jest.resetModules();
@@ -55,5 +63,29 @@ describe("env validation", () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require("../src/config/env");
     }).toThrow(/wildcard/i);
+  });
+
+  it("throws in production when S3_SCAN_WEBHOOK_SECRET is the placeholder", () => {
+    process.env = {
+      ...ORIGINAL,
+      ...REQUIRED_ENV,
+      NODE_ENV: "production",
+      S3_SCAN_WEBHOOK_SECRET: "change-me-in-production",
+    };
+
+    expect(() => require("../src/config/env")).toThrow(
+      /S3_SCAN_WEBHOOK_SECRET/,
+    );
+  });
+
+  it("loads in production when S3_SCAN_WEBHOOK_SECRET is configured", () => {
+    process.env = {
+      ...ORIGINAL,
+      ...REQUIRED_ENV,
+      NODE_ENV: "production",
+      S3_SCAN_WEBHOOK_SECRET: "super-secret-value",
+    };
+
+    expect(() => require("../src/config/env")).not.toThrow();
   });
 });

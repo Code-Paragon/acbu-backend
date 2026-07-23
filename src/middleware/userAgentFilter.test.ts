@@ -25,6 +25,7 @@ describe("userAgentFilter", () => {
   it.each([
     ["python-requests/2.28.0"],
     ["curl/7.88.1"],
+    ["curl/10.1.0"],
     ["Wget/1.21"],
     ["go-http-client/1.1"],
     ["masscan/1.3"],

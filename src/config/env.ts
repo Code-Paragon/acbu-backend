@@ -154,7 +154,7 @@ export const config = {
 
   // Redis cache (Sentinel / standalone)
   redis: {
-    url: process.env.REDIS_URL || "",
+    url: process.env.REDIS_URL?.trim() || undefined,
     sentinels: (() => {
       const raw = process.env.REDIS_SENTINELS || "";
       if (!raw) return [];
@@ -225,7 +225,7 @@ export const config = {
   },
   s3: {
     region: process.env.AWS_REGION || process.env.S3_REGION || "us-east-1",
-    bucket: process.env.S3_BUCKET || "",
+    bucket: process.env.S3_BUCKET?.trim() || undefined,
     endpoint: process.env.S3_ENDPOINT || "",
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || "",
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || "",

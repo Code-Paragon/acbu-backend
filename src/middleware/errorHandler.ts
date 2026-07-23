@@ -16,10 +16,17 @@ export class AppError extends Error {
   ) {
     super(message);
     this.statusCode = statusCode;
+    const fallbackCode =
+      statusCode === 429
+        ? ErrorCodes.RATE_LIMIT_EXCEEDED
+        : statusCode >= 500
+          ? ErrorCodes.INTERNAL_ERROR
+          : ErrorCodes.BAD_REQUEST;
+
     this.code =
       typeof codeOrDetails === "string"
         ? codeOrDetails
-        : ErrorCodes.BAD_REQUEST;
+        : fallbackCode;
     this.details =
       typeof codeOrDetails === "string" ? details : codeOrDetails;
     this.isOperational = true;

@@ -32,6 +32,27 @@ const isDev = config.nodeEnv !== "production";
 const bypassEnabled =
   isDev && process.env.WEBHOOK_SIGNATURE_BYPASS === "true";
 
+// Maximum allowed clock drift in seconds between the webhook timestamp and server time.
+// Rejects replayed webhooks that fall outside this window. Default: 300 s (±5 min).
+const WEBHOOK_TIMESTAMP_TOLERANCE_S = parseInt(
+  process.env.WEBHOOK_TIMESTAMP_TOLERANCE_S || "300",
+  10,
+);
+
+/**
+ * Validate a webhook timestamp (Unix seconds or ISO-8601) against server time.
+ * Returns false if the timestamp is absent, unparseable, or outside the tolerance window.
+ */
+function isTimestampValid(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const ts = Number(raw);
+  const nowS = Date.now() / 1000;
+  // Accept plain Unix seconds or ISO-8601 strings
+  const eventS = Number.isFinite(ts) ? ts : Date.parse(raw) / 1000;
+  if (!Number.isFinite(eventS)) return false;
+  return Math.abs(nowS - eventS) <= WEBHOOK_TIMESTAMP_TOLERANCE_S;
+}
+
 if (bypassEnabled) {
   logger.warn(
     "WEBHOOK_SIGNATURE_BYPASS is enabled — webhook signature verification " +
@@ -77,6 +98,18 @@ export function verifyFlutterwaveSignature(
       400,
       ErrorCodes.RAW_BODY_REQUIRED,
     );
+  }
+
+  // #390: Reject requests whose timestamp falls outside the tolerance window.
+  // Flutterwave sends the event time in the x-flw-timestamp header (Unix seconds).
+  const timestamp = req.headers["x-flw-timestamp"] as string | undefined;
+  if (!isTimestampValid(timestamp)) {
+    logger.warn("Flutterwave webhook timestamp invalid or outside tolerance window", {
+      timestamp,
+      toleranceS: WEBHOOK_TIMESTAMP_TOLERANCE_S,
+    });
+    res.status(401).json({ error: "Webhook timestamp invalid or expired" });
+    return;
   }
 
   const received = req.headers["verif-hash"] as string | undefined;
@@ -156,6 +189,18 @@ export function verifyPaystackSignature(
       400,
       ErrorCodes.RAW_BODY_REQUIRED,
     );
+  }
+
+  // #390: Reject requests whose timestamp falls outside the tolerance window.
+  // Paystack sends the event time in the x-paystack-timestamp header (Unix seconds).
+  const timestamp = req.headers["x-paystack-timestamp"] as string | undefined;
+  if (!isTimestampValid(timestamp)) {
+    logger.warn("Paystack webhook timestamp invalid or outside tolerance window", {
+      timestamp,
+      toleranceS: WEBHOOK_TIMESTAMP_TOLERANCE_S,
+    });
+    res.status(401).json({ error: "Webhook timestamp invalid or expired" });
+    return;
   }
 
   const received = req.headers["x-paystack-signature"] as string | undefined;

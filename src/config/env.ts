@@ -89,6 +89,16 @@ const envSchema = z.object({
   MEMORY_LEAK_THRESHOLD_PCT: z.coerce.number().int().min(50).max(99).default(85),
   MEMORY_CHECK_INTERVAL_MS: z.coerce.number().int().min(1000).default(30000),
   HEAP_DUMP_DIR: z.string().default("./heapdumps"),
+
+  // #383: Prisma migration history must survive replica promotion.
+  // Set to "true" only after verifying that `_prisma_migrations` is included in
+  // the database replication/failover strategy. Otherwise `migrate deploy` can
+  // re-apply migrations or fail after a read replica is promoted.
+  PRISMA_MIGRATION_HISTORY_REPLICATED: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -152,7 +162,7 @@ export const config = {
 
   // Redis cache (Sentinel / standalone)
   redis: {
-    url: process.env.REDIS_URL || "",
+    url: process.env.REDIS_URL?.trim() || undefined,
     sentinels: (() => {
       const raw = process.env.REDIS_SENTINELS || "";
       if (!raw) return [];
@@ -179,8 +189,10 @@ export const config = {
   logLevel: env.LOG_LEVEL,
   // Per-transport levels keep debug noise out of production aggregators (#398).
   logConsoleLevel:
-    env.LOG_LEVEL_CONSOLE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
-  logFileLevel: env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+    process.env.LOG_LEVEL_CONSOLE ??
+    (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+  logFileLevel:
+    process.env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFile: process.env.LOG_FILE || "logs/app.log",
 
   // Business calendar timezone for salary runs and withdrawal windows (#408)
@@ -212,7 +224,7 @@ export const config = {
   },
   s3: {
     region: process.env.AWS_REGION || process.env.S3_REGION || "us-east-1",
-    bucket: process.env.S3_BUCKET || "",
+    bucket: process.env.S3_BUCKET?.trim() || undefined,
     endpoint: process.env.S3_ENDPOINT || "",
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || "",
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || "",
@@ -473,6 +485,11 @@ export const config = {
   walBackup: {
     configured: env.PG_WAL_BACKUP_CONFIGURED === "true",
     provider: env.PG_WAL_BACKUP_PROVIDER || "",
+  },
+
+  // #383: Migration table replication / promotion safety.
+  prismaMigrationHistory: {
+    replicated: env.PRISMA_MIGRATION_HISTORY_REPLICATED === "true",
   },
 
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)

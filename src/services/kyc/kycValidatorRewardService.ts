@@ -24,8 +24,7 @@ export interface KycRewardValidationResult {
 const MAX_REWARD_PCT_OF_MINTED = 5n;
 
 async function getOnChainTotalMinted(): Promise<string> {
-  const feeRate = await acbuMintingService.getFeeRate();
-  return feeRate.toString();
+  return acbuMintingService.getTotalSupply();
 }
 
 export async function validateRewardAmount(
@@ -62,7 +61,7 @@ export async function validateRewardAmount(
       onChainTotalMinted: "0",
       rewardAmount: acbuAmount,
       maxAllowed: maxAllowed.toString(),
-      reason: "On-chain mint total is zero — cannot verify reward",
+      reason: "On-chain mint total is zero - cannot verify reward",
     };
   }
 

@@ -26,7 +26,9 @@ describe("env validation", () => {
   });
 
   it("loads successfully with all required vars set", () => {
-    expect(() => require("../src/config/env")).not.toThrow();
+    const { config } = require("../src/config/env");
+    expect(config.redis.url).toBeUndefined();
+    expect(config.s3.bucket).toBeUndefined();
   });
 
   it("coerces PORT to a number", () => {

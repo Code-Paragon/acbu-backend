@@ -23,25 +23,31 @@ const DEFAULT_BLOCKED_PATTERNS: RegExp[] = [
   /wfuzz/,
   /hydra/,
   /medusa/,
+
   // Headless / scripted abuse tools
   /python-requests/,
   /go-http-client/,
   /libwww-perl/,
-  /curl\/[0-9]/,   // bare curl (not curl wrapped in a real UA)
+  /curl\/\d+(?:\.\d+)*/,   // bare curl (not curl wrapped in a real UA)
   /wget\//,
   /scrapy/,
-  /java\/[0-9]/,   // raw Java HttpURLConnection
-  /axios\/[0-9]/,  // raw axios without an app-level UA
+  /java\/\d+(?:\.\d+)*/,   // raw Java HttpURLConnection
+  /axios\/\d+(?:\.\d+)*/,  // raw axios without an app-level UA
 ];
 
 function buildBlockedPatterns(): RegExp[] {
   const extra = process.env.BLOCKED_USER_AGENT_PATTERNS;
-  if (!extra) return DEFAULT_BLOCKED_PATTERNS;
+
+  if (!extra) {
+    return DEFAULT_BLOCKED_PATTERNS;
+  }
+
   const extras = extra
     .split(",")
-    .map((s) => s.trim())
+    .map((value) => value.trim())
     .filter(Boolean)
-    .map((s) => new RegExp(s, "i"));
+    .map((value) => new RegExp(value, "i"));
+
   return [...DEFAULT_BLOCKED_PATTERNS, ...extras];
 }
 

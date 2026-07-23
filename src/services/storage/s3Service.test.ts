@@ -12,6 +12,7 @@ import {
   assertKeyOwnership,
   ALLOWED_MIME_TYPES,
   ALL_ALLOWED_MIME_TYPES,
+  requireConfiguredS3Bucket,
 } from "./s3Service";
 
 // ── buildObjectKey ────────────────────────────────────────────────────────────
@@ -105,5 +106,19 @@ describe("ALLOWED_MIME_TYPES", () => {
   it("ALL_ALLOWED_MIME_TYPES contains no duplicates", () => {
     const unique = new Set(ALL_ALLOWED_MIME_TYPES);
     expect(unique.size).toBe(ALL_ALLOWED_MIME_TYPES.length);
+  });
+});
+
+// ── requireConfiguredS3Bucket ────────────────────────────────────────────────
+
+describe("requireConfiguredS3Bucket", () => {
+  it("returns a trimmed bucket name", () => {
+    expect(requireConfiguredS3Bucket("  example-bucket  ")).toBe("example-bucket");
+  });
+
+  it.each([undefined, "", "   "])("throws when bucket is missing: %s", (bucket) => {
+    expect(() => requireConfiguredS3Bucket(bucket as string | undefined)).toThrow(
+      "S3 bucket is not configured",
+    );
   });
 });

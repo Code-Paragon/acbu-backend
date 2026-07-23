@@ -21,10 +21,21 @@ const envSchema = z.object({
   ADMIN_API_KEY: z.string().optional(),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
-  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
   AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_FALLBACK_MAX_REQUESTS: z.coerce.number().int().positive().default(20),
+  RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(5),
+  RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().positive().default(60000),
   MAX_SIGNIN_ATTEMPTS: z.coerce.number().int().positive().default(5),
-  SIGNIN_LOCKOUT_DURATION_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  SIGNIN_LOCKOUT_DURATION_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
   PII_ENCRYPTION_KEY: z
     .string()
     .length(64, "PII_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)")
@@ -39,6 +50,8 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
     .default("info"),
+  LOG_LEVEL_CONSOLE: z.string().optional(),
+  LOG_LEVEL_FILE: z.string().optional(),
   BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
   CORS_ORIGIN: z.string().optional(),
   CDN_URL: z.string().url().optional(),
@@ -96,7 +109,8 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL)
 if (parsed.data.NODE_ENV === "production") {
   const missingFintechKeys: string[] = [];
   if (!process.env.FLUTTERWAVE_SECRET_KEY) missingFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
-  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET) missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
+  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET)
+    missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
   if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
   if (missingFintechKeys.length > 0) {
     throw new Error(
@@ -132,15 +146,9 @@ export const config = {
   signinLockoutDurationMs: env.SIGNIN_LOCKOUT_DURATION_MS,
 
   // Rate Limiting Fallback (during cache outages)
-  rateLimitFallbackMaxRequests: parseInt(process.env.RATE_LIMIT_FALLBACK_MAX_REQUESTS || "20", 10),
-  rateLimitCircuitBreakerThreshold: parseInt(
-    process.env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD || "5",
-    10,
-  ),
-  rateLimitCircuitBreakerCooldownMs: parseInt(
-    process.env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS || "60000",
-    10,
-  ),
+  rateLimitFallbackMaxRequests: env.RATE_LIMIT_FALLBACK_MAX_REQUESTS,
+  rateLimitCircuitBreakerThreshold: env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD,
+  rateLimitCircuitBreakerCooldownMs: env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS,
 
   // Redis cache (Sentinel / standalone)
   redis: {
@@ -162,28 +170,17 @@ export const config = {
     })(),
     sentinelName: process.env.REDIS_SENTINEL_NAME || "",
     password: process.env.REDIS_PASSWORD || "",
-    maxRetriesPerRequest: parseInt(
-      process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3",
-      10,
-    ),
-    readonlyRetryAttempts: parseInt(
-      process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3",
-      10,
-    ),
-    readonlyRetryDelayMs: parseInt(
-      process.env.REDIS_READONLY_RETRY_DELAY_MS || "100",
-      10,
-    ),
+    maxRetriesPerRequest: parseInt(process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3", 10),
+    readonlyRetryAttempts: parseInt(process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3", 10),
+    readonlyRetryDelayMs: parseInt(process.env.REDIS_READONLY_RETRY_DELAY_MS || "100", 10),
   },
 
   // Logging
   logLevel: env.LOG_LEVEL,
   // Per-transport levels keep debug noise out of production aggregators (#398).
   logConsoleLevel:
-    env.LOG_LEVEL_CONSOLE ??
-    (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
-  logFileLevel:
-    env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+    env.LOG_LEVEL_CONSOLE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+  logFileLevel: env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFile: process.env.LOG_FILE || "logs/app.log",
 
   // Business calendar timezone for salary runs and withdrawal windows (#408)

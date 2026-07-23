@@ -42,6 +42,18 @@ describe("env validation", () => {
     expect(config.logLevel).toBe("debug");
   });
 
+  it("coerces rate-limit fallback config values from env strings", () => {
+    process.env.RATE_LIMIT_FALLBACK_MAX_REQUESTS = "42";
+    process.env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD = "7";
+    process.env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS = "90000";
+
+    const { config } = require("../src/config/env");
+
+    expect(config.rateLimitFallbackMaxRequests).toBe(42);
+    expect(config.rateLimitCircuitBreakerThreshold).toBe(7);
+    expect(config.rateLimitCircuitBreakerCooldownMs).toBe(90000);
+  });
+
   it("throws when LOG_LEVEL is invalid", () => {
     process.env.LOG_LEVEL = "invalid_level";
     expect(() => require("../src/config/env")).toThrow(/LOG_LEVEL/);

@@ -17,7 +17,7 @@ jest.mock("../src/config/database", () => ({
 }));
 
 jest.mock("../src/config/logger", () => ({
-  logger: { error: jest.fn(), info: jest.fn() },
+  logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() },
 }));
 
 jest.mock("../src/services/investment/withdrawalNotificationService", () => ({
@@ -30,13 +30,12 @@ import { Decimal } from "@prisma/client/runtime/library";
 
 const mockQueryRaw = prisma.$queryRaw as jest.Mock;
 const mockFindMany = prisma.investmentWithdrawalRequest.findMany as jest.Mock;
-const mockUpdateMany = prisma.investmentWithdrawalRequest
-  .updateMany as jest.Mock;
+const mockUpdateMany = prisma.investmentWithdrawalRequest.updateMany as jest.Mock;
 const mockPublish = publishInvestmentWithdrawalReady as jest.Mock;
 const trustedNow = new Date("2026-05-27T12:00:00.000Z");
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  jest.resetAllMocks();
   mockQueryRaw.mockResolvedValue([{ trustedNow }]);
   mockUpdateMany.mockResolvedValue({ count: 1 });
 });
@@ -60,12 +59,7 @@ describe("processInvestmentWithdrawalAvailability", () => {
 
     await processInvestmentWithdrawalAvailability();
 
-    expect(mockPublish).toHaveBeenCalledWith(
-      userId,
-      amountAcbu.toNumber(),
-      null,
-      trustedNow,
-    );
+    expect(mockPublish).toHaveBeenCalledWith(userId, amountAcbu.toNumber(), null, trustedNow);
   });
 
   it("should notify organization admins when org withdrawal becomes available", async () => {
@@ -185,18 +179,8 @@ describe("processInvestmentWithdrawalAvailability", () => {
     await processInvestmentWithdrawalAvailability();
 
     expect(mockPublish).toHaveBeenCalledTimes(2);
-    expect(mockPublish).toHaveBeenCalledWith(
-      user1Id,
-      amountAcbu.toNumber(),
-      null,
-      trustedNow,
-    );
-    expect(mockPublish).toHaveBeenCalledWith(
-      null,
-      amountAcbu.toNumber(),
-      org1Id,
-      trustedNow,
-    );
+    expect(mockPublish).toHaveBeenCalledWith(user1Id, amountAcbu.toNumber(), null, trustedNow);
+    expect(mockPublish).toHaveBeenCalledWith(null, amountAcbu.toNumber(), org1Id, trustedNow);
   });
 
   it("should continue processing when one request fails", async () => {
@@ -230,15 +214,33 @@ describe("processInvestmentWithdrawalAvailability", () => {
 
     await processInvestmentWithdrawalAvailability();
 
-    // Should call publish only for the first request that succeeded
-    // Second request's publish is not called because update failed
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    expect(mockPublish).toHaveBeenCalledWith(
-      userId,
-      amountAcbu.toNumber(),
-      null,
-      trustedNow,
-    );
+    expect(mockPublish).toHaveBeenCalledTimes(2);
+    expect(mockPublish).toHaveBeenCalledWith(userId, amountAcbu.toNumber(), null, trustedNow);
+    expect(mockPublish).toHaveBeenCalledWith(null, amountAcbu.toNumber(), orgId, trustedNow);
+  });
+
+  it("should retry a transient update failure and still publish once it succeeds", async () => {
+    const amountAcbu = new Decimal("100.00");
+    const requestId = "request-10";
+
+    mockFindMany.mockResolvedValue([
+      {
+        id: requestId,
+        userId: "user-444",
+        organizationId: null,
+        status: "requested",
+        amountAcbu,
+        availableAt: new Date(trustedNow.getTime() - 1000),
+      },
+    ]);
+    mockUpdateMany
+      .mockRejectedValueOnce(new Error("Temporary update failure"))
+      .mockResolvedValueOnce({ count: 1 });
+
+    await processInvestmentWithdrawalAvailability();
+
+    expect(mockUpdateMany).toHaveBeenCalledTimes(2);
+    expect(mockPublish).toHaveBeenCalledWith("user-444", amountAcbu.toNumber(), null, trustedNow);
   });
 
   it("should not publish when another worker already transitioned the request", async () => {

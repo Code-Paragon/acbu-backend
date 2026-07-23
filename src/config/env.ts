@@ -76,6 +76,16 @@ const envSchema = z.object({
   MEMORY_LEAK_THRESHOLD_PCT: z.coerce.number().int().min(50).max(99).default(85),
   MEMORY_CHECK_INTERVAL_MS: z.coerce.number().int().min(1000).default(30000),
   HEAP_DUMP_DIR: z.string().default("./heapdumps"),
+
+  // #383: Prisma migration history must survive replica promotion.
+  // Set to "true" only after verifying that `_prisma_migrations` is included in
+  // the database replication/failover strategy. Otherwise `migrate deploy` can
+  // re-apply migrations or fail after a read replica is promoted.
+  PRISMA_MIGRATION_HISTORY_REPLICATED: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -476,6 +486,11 @@ export const config = {
   walBackup: {
     configured: env.PG_WAL_BACKUP_CONFIGURED === "true",
     provider: env.PG_WAL_BACKUP_PROVIDER || "",
+  },
+
+  // #383: Migration table replication / promotion safety.
+  prismaMigrationHistory: {
+    replicated: env.PRISMA_MIGRATION_HISTORY_REPLICATED === "true",
   },
 
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)

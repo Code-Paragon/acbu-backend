@@ -362,6 +362,24 @@ export class MintingService {
   }
 
   /**
+   * Get total ACBU supply minted on-chain.
+   */
+  async getTotalSupply(): Promise<string> {
+    try {
+      const result = await this.contractClient.readContract(
+        this.contractId,
+        "get_total_supply",
+        [],
+      );
+
+      return ContractClient.fromScVal(result).toString();
+    } catch (error) {
+      logger.error("Failed to get total supply", { error });
+      throw error;
+    }
+  }
+
+  /**
    * Check if contract is paused
    */
   async isPaused(): Promise<boolean> {

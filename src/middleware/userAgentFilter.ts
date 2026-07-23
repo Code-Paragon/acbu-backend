@@ -10,6 +10,7 @@ import { AppError } from "./errorHandler";
  * code change.
  */
 const DEFAULT_BLOCKED_PATTERNS: RegExp[] = [
+  // Generic scanners / fuzzers
   /masscan/,
   /zgrab/,
   /nmap/,
@@ -22,18 +23,21 @@ const DEFAULT_BLOCKED_PATTERNS: RegExp[] = [
   /wfuzz/,
   /hydra/,
   /medusa/,
+
+  // Headless / scripted abuse tools
   /python-requests/,
   /go-http-client/,
   /libwww-perl/,
-  /curl\/\d+(?:\.\d+)*/,
+  /curl\/\d+(?:\.\d+)*/,   // bare curl (not curl wrapped in a real UA)
   /wget\//,
   /scrapy/,
-  /java\/\d+(?:\.\d+)*/,
-  /axios\/\d+(?:\.\d+)*/,
+  /java\/\d+(?:\.\d+)*/,   // raw Java HttpURLConnection
+  /axios\/\d+(?:\.\d+)*/,  // raw axios without an app-level UA
 ];
 
 function buildBlockedPatterns(): RegExp[] {
   const extra = process.env.BLOCKED_USER_AGENT_PATTERNS;
+
   if (!extra) {
     return DEFAULT_BLOCKED_PATTERNS;
   }
@@ -57,14 +61,12 @@ export function userAgentFilter(
   const ua = (req.headers["user-agent"] ?? "").toLowerCase();
 
   if (!ua) {
-    next(new AppError("Missing User-Agent header", 400, "MISSING_USER_AGENT"));
-    return;
+    return next(new AppError("Missing User-Agent header", 400, "MISSING_USER_AGENT"));
   }
 
   for (const pattern of BLOCKED_PATTERNS) {
     if (pattern.test(ua)) {
-      next(new AppError("Forbidden", 403, "FORBIDDEN_USER_AGENT"));
-      return;
+      return next(new AppError("Forbidden", 403, "FORBIDDEN_USER_AGENT"));
     }
   }
 

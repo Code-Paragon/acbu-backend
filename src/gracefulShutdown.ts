@@ -2,12 +2,18 @@ import { type Server } from "http";
 import { logger } from "./config/logger";
 import { disconnectMongoDB } from "./config/mongodb";
 import { disconnectRabbitMQ } from "./config/rabbitmq";
+import { stopMemoryMonitor } from "./utils/memoryMonitor";
 
 type AppServer = Server & { closeIdleConnections?: () => void };
 let httpServer: AppServer | null = null;
+let memoryMonitorHandle: NodeJS.Timeout | null = null;
 
 export const setHttpServer = (server: AppServer | null): void => {
   httpServer = server;
+};
+
+export const setMemoryMonitorHandle = (handle: NodeJS.Timeout): void => {
+  memoryMonitorHandle = handle;
 };
 
 const closeServer = async (): Promise<void> => {
@@ -38,6 +44,7 @@ const closeServer = async (): Promise<void> => {
 
 export const shutdown = async (): Promise<void> => {
   logger.info("Shutting down gracefully...");
+  if (memoryMonitorHandle) stopMemoryMonitor(memoryMonitorHandle);
   await closeServer();
   await disconnectMongoDB();
   await disconnectRabbitMQ();
@@ -62,4 +69,22 @@ const handleTermination = async (): Promise<void> => {
 export const registerGracefulShutdown = (): void => {
   process.on("SIGTERM", handleTermination);
   process.on("SIGINT", handleTermination);
+
+  // An uncaught exception leaves the process in an undefined state.
+  // Log it and exit immediately so the process manager (Docker/K8s) can restart cleanly.
+  process.on("uncaughtException", (error: Error) => {
+    logger.error("uncaughtException — exiting to prevent undefined state", {
+      message: error.message,
+      stack: error.stack,
+    });
+    process.exit(1);
+  });
+
+  // Unhandled promise rejections are equally unsafe to continue from.
+  process.on("unhandledRejection", (reason: unknown) => {
+    logger.error("unhandledRejection — exiting to prevent undefined state", {
+      reason: reason instanceof Error ? reason.stack : String(reason),
+    });
+    process.exit(1);
+  });
 };

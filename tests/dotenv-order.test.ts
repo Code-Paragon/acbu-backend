@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 
 describe("src/index dotenv bootstrap order", () => {
-  it("loads dotenv before any other imports", () => {
+  it("loads env config before any other imports", () => {
     const indexPath = path.resolve(__dirname, "../src/index.ts");
     const source = fs.readFileSync(indexPath, "utf8");
     const firstMeaningfulLine = source
@@ -10,6 +10,6 @@ describe("src/index dotenv bootstrap order", () => {
       .map((line) => line.trim())
       .find((line) => line.length > 0 && !line.startsWith("//"));
 
-    expect(firstMeaningfulLine).toBe('import "dotenv/config";');
+    expect(firstMeaningfulLine).toBe('import "./config/env";');
   });
 });

@@ -1,8 +1,24 @@
 import dotenv from "dotenv";
+import path from "path";
 import { z } from "zod";
 import { parseCorsOrigins } from "./corsOrigins";
 
-dotenv.config();
+// Load dotenv files in proper order, avoiding .env.local in test environments
+const nodeEnv = process.env.NODE_ENV || "development";
+const isTest = nodeEnv === "test";
+
+// Files to load, in order (later files override earlier ones)
+const envFiles = [
+  ".env",
+  ...(isTest ? [] : [".env.local"]),
+  `.env.${nodeEnv}`,
+  ...(isTest ? [] : [`.env.${nodeEnv}.local`]),
+];
+
+envFiles.forEach((file) => {
+  const filePath = path.resolve(process.cwd(), file);
+  dotenv.config({ path: filePath, override: false });
+});
 
 const envSchema = z.object({
   NODE_ENV: z.string().default("development"),

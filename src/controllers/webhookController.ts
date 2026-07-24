@@ -415,6 +415,18 @@ export async function handleBillsWebhook(
       throw new AppError("Bills webhook provider is required", 400);
     }
 
+    // Reject requests whose timestamp falls outside the tolerance window
+    // (same replay protection used by Flutterwave/Paystack webhooks).
+    const timestamp = req.headers["x-bills-timestamp"] as string | undefined;
+    if (!isTimestampValid(timestamp)) {
+      logger.warn("Bills webhook timestamp invalid or outside tolerance window", {
+        timestamp,
+        toleranceS: WEBHOOK_TIMESTAMP_TOLERANCE_S,
+      });
+      res.status(401).json({ error: "Webhook timestamp invalid or expired" });
+      return;
+    }
+
     const body = (req.body || {}) as Record<string, unknown>;
     const transactionId = String(
       body.transaction_id ?? body.transactionId ?? "",

@@ -398,6 +398,88 @@ export async function handleFlutterwaveWebhook(
   }
 }
 
+// ── Bills Webhook ───────────────────────────────────────────────────────────
+
+/**
+ * Verify bills webhook signature using HMAC-SHA256 of the raw body.
+ * Rejects the request if BILLS_WEBHOOK_SECRET is not configured.
+ */
+export function verifyBillsWebhookSignature(
+  req: Request & { rawBody?: Buffer },
+  res: Response,
+  next: NextFunction,
+): void {
+  // Dev/stage explicit bypass — never reachable in production because env.ts
+  // throws before the server starts when BILLS_WEBHOOK_SECRET is unset.
+  if (bypassEnabled) {
+    logger.warn("Bills webhook signature check bypassed (dev/stage)");
+    next();
+    return;
+  }
+
+  const secret = config.bills.webhookSecret;
+  if (!secret) {
+    // Should never be reached in production due to boot guard in env.ts.
+    logger.error(
+      "BILLS_WEBHOOK_SECRET is not configured — rejecting webhook. " +
+        "Set the environment variable to accept bills webhooks.",
+    );
+    throw new AppError(
+      "Webhook verification unavailable: secret not configured",
+      503,
+      ErrorCodes.CONFIG_ERROR,
+    );
+  }
+
+  const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
+  if (!rawBody || !Buffer.isBuffer(rawBody)) {
+    throw new AppError(
+      "Raw body required for verification",
+      400,
+      ErrorCodes.RAW_BODY_REQUIRED,
+    );
+  }
+
+  const timestamp = req.headers["x-bills-timestamp"] as string | undefined;
+  if (!isTimestampValid(timestamp)) {
+    logger.warn("Bills webhook timestamp invalid or outside tolerance window", {
+      timestamp,
+      toleranceS: WEBHOOK_TIMESTAMP_TOLERANCE_S,
+    });
+    res.status(401).json({ error: "Webhook timestamp invalid or expired" });
+    return;
+  }
+
+  const received = req.headers["x-bills-signature"] as string | undefined;
+  if (!received) {
+    throw new AppError(
+      "Missing x-bills-signature header",
+      401,
+      ErrorCodes.MISSING_SIGNATURE,
+    );
+  }
+
+  const computed = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+
+  const receivedBuf = Buffer.from(received, "hex");
+  const computedBuf = Buffer.from(computed, "hex");
+
+  let signatureValid = false;
+  if (receivedBuf.length === computedBuf.length) {
+    try {
+      signatureValid = crypto.timingSafeEqual(receivedBuf, computedBuf);
+    } catch {
+      signatureValid = false;
+    }
+  }
+
+  if (!signatureValid) {
+    logger.warn("Bills webhook signature mismatch");
+    throw new AppError("Invalid signature", 401, ErrorCodes.INVALID_SIGNATURE);
+  }
+  next();
+}
+
 /**
  * Handle partner bill-payment webhooks and reconcile the existing bill payment transaction.
  * This route is provider-agnostic for now; providers can be added behind the same normalizer.

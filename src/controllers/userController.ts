@@ -28,7 +28,7 @@ export const patchMeSchema = z.object({
     .optional()
     .nullable(),
   privacy_hide_from_search: z.boolean().optional(),
-  passcode: z.string().min(4).max(64).optional(), // set or update passcode for Tier-1 recovery
+  passcode: z.string().min(8).max(64).optional(), // set or update passcode for Tier-1 recovery
 });
 
 /**

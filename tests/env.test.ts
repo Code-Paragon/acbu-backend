@@ -4,7 +4,7 @@ describe("env validation", () => {
     DATABASE_URL: "postgresql://u:p@localhost:5432/db",
     MONGODB_URI: "mongodb://localhost:27017/db",
     RABBITMQ_URL: "amqp://localhost:5672",
-    JWT_SECRET: "test-secret",
+    JWT_SECRET: "test-secret-that-is-at-least-32-characters-long",
     PRISMA_ACCELERATE_URL: "prisma://accelerate.prisma-data.net/?api_key=test",
     CORS_ORIGIN: "https://app.acbu.io",
   };

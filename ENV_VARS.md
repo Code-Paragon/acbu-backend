@@ -33,6 +33,9 @@ This file documents the environment variables required by the ACBU backend and t
   - RabbitMQ connection string for queue-based features.
 - `JWT_SECRET`
   - Secret used for JWT signing and verification.
+  - Must be at least 32 characters and must not equal the documented `.env.example` placeholder value.
+- `BILLS_WEBHOOK_SECRET`
+  - HMAC secret for verifying `/v1/webhooks/bills/:provider` signatures. Required in production.
 
 ## Runtime database configuration
 
@@ -53,7 +56,7 @@ This file documents the environment variables required by the ACBU backend and t
 - `NODE_ENV` - defaults to `development`
 - `PORT` - defaults to `5000`
 - `API_VERSION` - defaults to `v1`
-- `CHALLENGE_TOKEN_SECRET` - optional; fallback to `JWT_SECRET`
+- `CHALLENGE_TOKEN_SECRET` - required explicitly in production (distinct from `JWT_SECRET`); falls back to `JWT_SECRET` outside production
 - `JWT_EXPIRES_IN` - defaults to `7d`
 - `JWT_CLOCK_TOLERANCE_SECONDS` - defaults to `30`
 - `API_KEY_SALT` - defaults to empty string

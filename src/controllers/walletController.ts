@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Response, NextFunction } from "express";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { Keypair } from "@stellar/stellar-sdk";
 import { AuthRequest } from "../middleware/auth";
 import { prisma } from "../config/database";

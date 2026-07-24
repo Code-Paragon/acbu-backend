@@ -2,7 +2,7 @@
  * Recovery Tier 1: unlock app via email/phone + passcode + OTP + device verification.
  * Enhanced security flow: 1) verify passcode, check rate limits, verify device, send OTP; 2) verify OTP, issue API key, rotate sessions.
  */
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { Buffer } from "buffer";
 import { prisma } from "../../config/database";
 import { generateApiKey } from "../../middleware/auth";

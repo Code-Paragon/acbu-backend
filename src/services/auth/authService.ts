@@ -4,7 +4,7 @@
  * If 2FA enabled, returns challenge_token (JWT); else issues api_key.
  * OTP (sms/email) is created and published to RabbitMQ OTP_SEND for delivery.
  */
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { totp } from "otplib";
 import { randomUUID } from "crypto";
 import { config } from "../../config/env";

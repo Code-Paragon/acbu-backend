@@ -177,7 +177,7 @@ export async function postSignout(
       where: { id: keyId },
       data: { revokedAt: new Date() },
     });
-    res.status(200).json({ ok: true });
+    res.status(204).send();
   } catch (e) {
     next(e);
   }

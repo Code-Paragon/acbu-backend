@@ -5,7 +5,7 @@ import {
   eventListener,
   ContractEvent,
 } from "../services/stellar/eventListener";
-import { contractAddresses } from "../config/contracts";
+import { getContractAddresses } from "../config/contracts";
 import { logger } from "../config/logger";
 import { lendingPoolEventProducer } from "./producers";
 
@@ -16,7 +16,7 @@ const LENDING_POOL_EFFECT_TYPES = [
 ];
 
 export async function startLendingPoolEventListener(): Promise<void> {
-  const contractId = contractAddresses.lendingPool;
+  const contractId = getContractAddresses().lendingPool;
   if (!contractId) {
     logger.info(
       "Lending pool event listener skipped: no CONTRACT_LENDING_POOL configured",

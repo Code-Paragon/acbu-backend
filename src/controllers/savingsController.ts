@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { acbuSavingsVaultService } from "../services/contracts";
-import { contractAddresses } from "../config/contracts";
+import { getContractAddresses } from "../config/contracts";
 import type { AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import {
@@ -31,7 +31,7 @@ export async function postSavingsDeposit(
     const parsed = savingsDepositSchema.parse({ body: authReq.body });
     const amount = parsed.body.amount;
     const termSeconds = parsed.body.term_seconds;
-    if (!contractAddresses.savingsVault) {
+    if (!getContractAddresses().savingsVault) {
       throw new AppError("Savings vault contract not configured", 503);
     }
     const result = await acbuSavingsVaultService.deposit({
@@ -74,7 +74,7 @@ export async function postSavingsWithdraw(
     const parsed = savingsWithdrawSchema.parse({ body: authReq.body });
     const amount = parsed.body.amount;
     const termSeconds = parsed.body.term_seconds;
-    if (!contractAddresses.savingsVault) {
+    if (!getContractAddresses().savingsVault) {
       throw new AppError("Savings vault contract not configured", 503);
     }
     const txHash = await acbuSavingsVaultService.withdraw({
@@ -103,7 +103,7 @@ export async function getSavingsPositions(
 
     const parsed = savingsPositionsSchema.parse({ query: authReq.query });
     const termSeconds = parsed.query.term_seconds;
-    if (!contractAddresses.savingsVault) {
+    if (!getContractAddresses().savingsVault) {
       throw new AppError("Savings vault contract not configured", 503);
     }
     const balance = await acbuSavingsVaultService.getBalance(

@@ -28,8 +28,8 @@ const envSchema = z.object({
   DATABASE_URL_REPLICA: z.string().optional(),
   MONGODB_URI: z.string().min(1),
   RABBITMQ_URL: z.string().min(1),
-  JWT_SECRET: z.string().min(1),
-  CHALLENGE_TOKEN_SECRET: z.string().optional(),
+  JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
+  CHALLENGE_TOKEN_SECRET: z.string().min(32).optional(),
   PRISMA_ACCELERATE_URL: z.string().optional(),
   JWT_EXPIRES_IN: z.string().default("7d"),
   JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().int().nonnegative().default(30),
@@ -128,6 +128,25 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL)
   throw new Error("Missing required environment variable: PRISMA_ACCELERATE_URL");
 }
 
+// #630: JWT_SECRET must not be the documented .env.example placeholder in production.
+const JWT_SECRET_EXAMPLE_VALUES = ["dev-jwt-secret-change-me", "change-me-in-production"];
+if (
+  parsed.data.NODE_ENV === "production" &&
+  JWT_SECRET_EXAMPLE_VALUES.includes(parsed.data.JWT_SECRET)
+) {
+  throw new Error(
+    "JWT_SECRET is set to a documented example/placeholder value — generate a unique secret before deploying to production.",
+  );
+}
+
+// #632: CHALLENGE_TOKEN_SECRET must be explicit in production so a leaked
+// JWT_SECRET does not also compromise the 2FA challenge-token trust boundary.
+if (parsed.data.NODE_ENV === "production" && !parsed.data.CHALLENGE_TOKEN_SECRET) {
+  throw new Error(
+    "Missing required environment variable: CHALLENGE_TOKEN_SECRET (must be set explicitly in production, distinct from JWT_SECRET)",
+  );
+}
+
 const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "change-me-in-production";
 
 if (parsed.data.NODE_ENV === "production" && s3ScanWebhookSecret === "change-me-in-production") {
@@ -143,6 +162,7 @@ if (parsed.data.NODE_ENV === "production") {
   if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET)
     missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
   if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
+  if (!process.env.BILLS_WEBHOOK_SECRET) missingFintechKeys.push("BILLS_WEBHOOK_SECRET");
   if (missingFintechKeys.length > 0) {
     throw new Error(
       `Missing required fintech API keys in production: ${missingFintechKeys.join(", ")}. ` +
@@ -229,6 +249,10 @@ export const config = {
   paystack: {
     secretKey: process.env.PAYSTACK_SECRET_KEY || "",
     baseUrl: process.env.PAYSTACK_BASE_URL || "https://api.paystack.co",
+  },
+  // BE-001: HMAC secret for /v1/webhooks/bills/:provider signature verification.
+  bills: {
+    webhookSecret: process.env.BILLS_WEBHOOK_SECRET || "",
   },
   mtnMomo: {
     subscriptionKey: process.env.MTN_MOMO_SUBSCRIPTION_KEY || "",

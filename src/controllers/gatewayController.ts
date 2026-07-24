@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { acbuEscrowService } from "../services/contracts";
-import { contractAddresses } from "../config/contracts";
+import { getContractAddresses } from "../config/contracts";
 import type { AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 
@@ -14,7 +14,7 @@ export async function postGatewayCharge(
     if (!payer || !payee || !amount || escrow_id == null) {
       throw new AppError("payer, payee, amount, and escrow_id required", 400);
     }
-    if (!contractAddresses.escrow) {
+    if (!getContractAddresses().escrow) {
       throw new AppError("Escrow contract not configured", 503);
     }
     const txHash = await acbuEscrowService.create({
@@ -41,7 +41,7 @@ export async function postGatewayConfirm(
     if (escrow_id == null) {
       throw new AppError("escrow_id required", 400);
     }
-    if (!contractAddresses.escrow) {
+    if (!getContractAddresses().escrow) {
       throw new AppError("Escrow contract not configured", 503);
     }
     if (action === "release") {

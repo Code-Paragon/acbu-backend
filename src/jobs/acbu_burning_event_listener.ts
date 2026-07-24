@@ -5,7 +5,7 @@ import {
   eventListener,
   ContractEvent,
 } from "../services/stellar/eventListener";
-import { contractAddresses } from "../config/contracts";
+import { getContractAddresses } from "../config/contracts";
 import { enqueueWithdrawalProcessing } from "./withdrawalProcessingJob";
 import { logger } from "../config/logger";
 import { prisma } from "../config/database";
@@ -39,7 +39,7 @@ async function findTransactionByBlockchainHash(
 }
 
 export async function startBurnEventListener(): Promise<void> {
-  const burningContractId = contractAddresses.burning;
+  const burningContractId = getContractAddresses().burning;
   if (!burningContractId) {
     logger.info("Burn event listener skipped: no CONTRACT_BURNING configured");
     return;

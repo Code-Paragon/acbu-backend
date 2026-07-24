@@ -5,7 +5,7 @@ import {
   eventListener,
   ContractEvent,
 } from "../services/stellar/eventListener";
-import { contractAddresses } from "../config/contracts";
+import { getContractAddresses } from "../config/contracts";
 import { enqueueUsdcConversion } from "./usdcConversionJob";
 import { logger } from "../config/logger";
 import { prisma } from "../config/database";
@@ -60,7 +60,7 @@ async function findTransactionByBlockchainHash(
 }
 
 export async function startMintEventListener(): Promise<void> {
-  const mintingContractId = contractAddresses.minting;
+  const mintingContractId = getContractAddresses().minting;
   if (!mintingContractId) {
     logger.info("Mint event listener skipped: no CONTRACT_MINTING configured");
     return;

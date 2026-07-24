@@ -26,15 +26,6 @@ jest.mock("../src/config/contracts", () => ({
     lendingPool: "",
     escrow: "",
   }),
-  contractAddresses: {
-    oracle: "",
-    reserveTracker: "",
-    minting: "",
-    burning: "burning-contract-id",
-    savingsVault: "",
-    lendingPool: "",
-    escrow: "",
-  },
 }));
 
 jest.mock("../src/services/contracts", () => ({

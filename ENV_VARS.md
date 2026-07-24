@@ -2,6 +2,26 @@
 
 This file documents the environment variables required by the ACBU backend and the defaults used by the runtime.
 
+## ⚠️ Security Guidelines
+
+**CRITICAL:** The `.env` file contains sensitive credentials. Follow these practices:
+
+1. **Never commit `.env` to git** — add it to `.gitignore` (already configured).
+2. **Use `.env.example` as a template** — it contains placeholder values only.
+3. **Rotate credentials immediately** if `.env` is ever accidentally exposed or committed.
+4. **Validate URL syntax** before deployment:
+   - `RABBITMQ_URL` — must follow `amqp://user:password@host:port/vhost`
+   - `DATABASE_URL` — must be a valid PostgreSQL connection string
+   - `MONGODB_URI` — must be a valid MongoDB connection string
+5. **Use strong secrets** — `JWT_SECRET` must be at least 32 characters in production.
+6. **Production secrets** — use your cloud provider's secrets manager (AWS Secrets Manager, GCP Secret Manager, etc.).
+7. **Environment-specific files** — keep separate `.env.production`, `.env.staging` (not in git) with real credentials.
+
+**If credentials are exposed:**
+- Rotate all API keys, database passwords, and secrets immediately.
+- Audit git history: `git log --all --source --full-history -- .env`
+- Force-push to remove sensitive commits (requires admin approval).
+
 ## Required variables
 
 - `DATABASE_URL`
@@ -21,6 +41,10 @@ This file documents the environment variables required by the ACBU backend and t
   - When set, the app uses Prisma Accelerate for runtime queries.
   - Must start with `prisma://` or `prisma+postgres://`.
   - In production, this variable is required.
+- `PRISMA_MIGRATION_HISTORY_REPLICATED`
+  - Defaults to `false`.
+  - In production, set to `true` only after verifying `_prisma_migrations` is replicated to failover targets.
+  - The app refuses to run startup migrations in production until this is explicitly acknowledged.
 
 ## Optional and configurable variables
 
@@ -154,4 +178,5 @@ This file documents the environment variables required by the ACBU backend and t
 - In production, `PRISMA_ACCELERATE_URL` is required.
 - `DATABASE_URL` should always be a direct PostgreSQL URL for migrations.
 - `PRISMA_ACCELERATE_URL` should be used for runtime database queries when set.
+- `PRISMA_MIGRATION_HISTORY_REPLICATED=true` confirms promoted replicas retain Prisma migration history.
 - If you need the exact runtime schema, refer to `src/config/env.ts`.

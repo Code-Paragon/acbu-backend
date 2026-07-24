@@ -1,51 +1,82 @@
 import dotenv from "dotenv";
+import path from "path";
 import { z } from "zod";
 import { parseCorsOrigins } from "./corsOrigins";
 
-dotenv.config();
+// Load dotenv files in proper order, avoiding .env.local in test environments
+const nodeEnv = process.env.NODE_ENV || "development";
+const isTest = nodeEnv === "test";
+
+// Files to load, in order (later files override earlier ones)
+const envFiles = [
+  ".env",
+  ...(isTest ? [] : [".env.local"]),
+  `.env.${nodeEnv}`,
+  ...(isTest ? [] : [`.env.${nodeEnv}.local`]),
+];
+
+envFiles.forEach((file) => {
+  const filePath = path.resolve(process.cwd(), file);
+  dotenv.config({ path: filePath, override: false });
+});
 
 const envSchema = z.object({
   NODE_ENV: z.string().default("development"),
-  PORT: z.coerce.number().default(5000),
+  PORT: z.coerce.number().int().positive().max(65535).default(5000),
   API_VERSION: z.string().default("v1"),
   DATABASE_URL: z.string().min(1),
+  DATABASE_URL_REPLICA: z.string().optional(),
   MONGODB_URI: z.string().min(1),
   RABBITMQ_URL: z.string().min(1),
   JWT_SECRET: z.string().min(1),
   CHALLENGE_TOKEN_SECRET: z.string().optional(),
   PRISMA_ACCELERATE_URL: z.string().optional(),
   JWT_EXPIRES_IN: z.string().default("7d"),
-  JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().default(30),
+  JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().int().nonnegative().default(30),
   API_KEY_SALT: z.string().default(""),
   ADMIN_API_KEY: z.string().optional(),
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
-  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
-  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
-  AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(10),
-  MAX_SIGNIN_ATTEMPTS: z.coerce.number().default(5),
-  SIGNIN_LOCKOUT_DURATION_MS: z.coerce.number().default(15 * 60 * 1000),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
+  AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_FALLBACK_MAX_REQUESTS: z.coerce.number().int().positive().default(20),
+  RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(5),
+  RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().positive().default(60000),
+  MAX_SIGNIN_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  SIGNIN_LOCKOUT_DURATION_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
   PII_ENCRYPTION_KEY: z
     .string()
     .length(64, "PII_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)")
     .regex(/^[0-9a-fA-F]+$/, "PII_ENCRYPTION_KEY must be a hex string")
     .optional(),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_ORG_MONTHLY_BUDGET_USD: z.coerce.number().default(50),
-  OPENAI_MAX_TOKENS_PER_REQUEST: z.coerce.number().default(2000),
+  OPENAI_ORG_MONTHLY_BUDGET_USD: z.coerce.number().nonnegative().default(50),
+  OPENAI_MAX_TOKENS_PER_REQUEST: z.coerce.number().int().positive().default(2000),
   LOG_LEVEL: z
     .string()
     .trim()
     .toLowerCase()
     .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
     .default("info"),
+  LOG_LEVEL_CONSOLE: z.string().optional(),
+  LOG_LEVEL_FILE: z.string().optional(),
   BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
   CORS_ORIGIN: z.string().optional(),
+  CDN_URL: z.string().url().optional(),
 
   // B-063: Fail-open controls for OpenAI degradation scenarios.
   OPENAI_FAIL_OPEN_ENABLED: z.string().default("true"),
-  OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().default(2000),
-  OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().default(2),
-  OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().default(500),
+  OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
+  OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().int().nonnegative().default(2),
+  OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().int().positive().default(500),
 
   // #402: Startup database connection retry with exponential backoff + jitter.
   // Jitter de-synchronises reconnecting instances to avoid a thundering herd on
@@ -66,6 +97,24 @@ const envSchema = z.object({
     .default("false"),
   // Human-readable label used in boot logs (e.g. "pgbackrest", "rds-automated", "supabase-pitr").
   PG_WAL_BACKUP_PROVIDER: z.string().optional(),
+
+  // #436: Memory leak detection thresholds.
+  // MEMORY_LEAK_THRESHOLD_PCT — warn when heapUsed crosses this % of heap_size_limit (default 85).
+  // MEMORY_CHECK_INTERVAL_MS  — how often to sample heap usage (default 30 000 ms).
+  // HEAP_DUMP_DIR             — directory for .heapsnapshot files written on critical heap pressure.
+  MEMORY_LEAK_THRESHOLD_PCT: z.coerce.number().int().min(50).max(99).default(85),
+  MEMORY_CHECK_INTERVAL_MS: z.coerce.number().int().min(1000).default(30000),
+  HEAP_DUMP_DIR: z.string().default("./heapdumps"),
+
+  // #383: Prisma migration history must survive replica promotion.
+  // Set to "true" only after verifying that `_prisma_migrations` is included in
+  // the database replication/failover strategy. Otherwise `migrate deploy` can
+  // re-apply migrations or fail after a read replica is promoted.
+  PRISMA_MIGRATION_HISTORY_REPLICATED: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -79,6 +128,29 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL)
   throw new Error("Missing required environment variable: PRISMA_ACCELERATE_URL");
 }
 
+const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "change-me-in-production";
+
+if (parsed.data.NODE_ENV === "production" && s3ScanWebhookSecret === "change-me-in-production") {
+  throw new Error("Missing required environment variable: S3_SCAN_WEBHOOK_SECRET");
+// #382: Fintech partner keys must never be absent in production — an empty
+// Authorization header would be silently accepted by axios and only fail at
+// the first live API call, making the error hard to trace.  Fail at boot
+// instead so a misconfigured deployment is caught before it reaches traffic.
+if (parsed.data.NODE_ENV === "production") {
+  const missingFintechKeys: string[] = [];
+  if (!process.env.FLUTTERWAVE_SECRET_KEY) missingFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
+  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET)
+    missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
+  if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
+  if (missingFintechKeys.length > 0) {
+    throw new Error(
+      `Missing required fintech API keys in production: ${missingFintechKeys.join(", ")}. ` +
+        "Inject these via environment variables — never commit them to source control. " +
+        "Rotate any key that may have been exposed before redeploying.",
+    );
+  }
+}
+
 const env = parsed.data;
 
 export const config = {
@@ -86,6 +158,7 @@ export const config = {
   port: env.PORT,
   apiVersion: env.API_VERSION,
   databaseUrl: env.DATABASE_URL,
+  databaseUrlReplica: env.DATABASE_URL_REPLICA,
   prismaAccelerateUrl: env.PRISMA_ACCELERATE_URL,
   mongodbUri: env.MONGODB_URI,
   rabbitmqUrl: env.RABBITMQ_URL,
@@ -103,19 +176,13 @@ export const config = {
   signinLockoutDurationMs: env.SIGNIN_LOCKOUT_DURATION_MS,
 
   // Rate Limiting Fallback (during cache outages)
-  rateLimitFallbackMaxRequests: parseInt(process.env.RATE_LIMIT_FALLBACK_MAX_REQUESTS || "20", 10),
-  rateLimitCircuitBreakerThreshold: parseInt(
-    process.env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD || "5",
-    10,
-  ),
-  rateLimitCircuitBreakerCooldownMs: parseInt(
-    process.env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS || "60000",
-    10,
-  ),
+  rateLimitFallbackMaxRequests: env.RATE_LIMIT_FALLBACK_MAX_REQUESTS,
+  rateLimitCircuitBreakerThreshold: env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD,
+  rateLimitCircuitBreakerCooldownMs: env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS,
 
   // Redis cache (Sentinel / standalone)
   redis: {
-    url: process.env.REDIS_URL || "",
+    url: process.env.REDIS_URL?.trim() || undefined,
     sentinels: (() => {
       const raw = process.env.REDIS_SENTINELS || "";
       if (!raw) return [];
@@ -133,18 +200,9 @@ export const config = {
     })(),
     sentinelName: process.env.REDIS_SENTINEL_NAME || "",
     password: process.env.REDIS_PASSWORD || "",
-    maxRetriesPerRequest: parseInt(
-      process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3",
-      10,
-    ),
-    readonlyRetryAttempts: parseInt(
-      process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3",
-      10,
-    ),
-    readonlyRetryDelayMs: parseInt(
-      process.env.REDIS_READONLY_RETRY_DELAY_MS || "100",
-      10,
-    ),
+    maxRetriesPerRequest: parseInt(process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3", 10),
+    readonlyRetryAttempts: parseInt(process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3", 10),
+    readonlyRetryDelayMs: parseInt(process.env.REDIS_READONLY_RETRY_DELAY_MS || "100", 10),
   },
 
   // Logging
@@ -186,13 +244,13 @@ export const config = {
   },
   s3: {
     region: process.env.AWS_REGION || process.env.S3_REGION || "us-east-1",
-    bucket: process.env.S3_BUCKET || "",
+    bucket: process.env.S3_BUCKET?.trim() || undefined,
     endpoint: process.env.S3_ENDPOINT || "",
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || "",
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || "",
     uploadUrlTtlSeconds: parseInt(process.env.S3_UPLOAD_URL_TTL_SECONDS || "900", 10),
     downloadUrlTtlSeconds: parseInt(process.env.S3_DOWNLOAD_URL_TTL_SECONDS || "300", 10),
-    scanWebhookSecret: process.env.S3_SCAN_WEBHOOK_SECRET || "",
+    scanWebhookSecret: s3ScanWebhookSecret,
   },
   fintech: {
     currencyProviders: ((): Record<string, string> => {
@@ -433,6 +491,9 @@ export const config = {
     failOpenRetryBaseMs: env.OPENAI_FAIL_OPEN_RETRY_BASE_MS,
   },
 
+  // PII encryption key for KYC and sensitive field encryption
+  piiEncryptionKey: env.PII_ENCRYPTION_KEY,
+
   // Startup database connection retry (#402)
   database: {
     connectMaxRetries: env.DB_CONNECT_MAX_RETRIES,
@@ -446,6 +507,21 @@ export const config = {
     provider: env.PG_WAL_BACKUP_PROVIDER || "",
   },
 
+  // #383: Migration table replication / promotion safety.
+  prismaMigrationHistory: {
+    replicated: env.PRISMA_MIGRATION_HISTORY_REPLICATED === "true",
+  },
+
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)
   corsOrigin: parseCorsOrigins(env.CORS_ORIGIN, env.NODE_ENV),
+
+  // CDN — when set, DNS prefetch is enabled so browsers can resolve the CDN domain early
+  cdnUrl: env.CDN_URL ?? null,
+
+  // #436: Memory leak detection configuration
+  memory: {
+    leakThresholdPct: env.MEMORY_LEAK_THRESHOLD_PCT,
+    checkIntervalMs: env.MEMORY_CHECK_INTERVAL_MS,
+    heapDumpDir: env.HEAP_DUMP_DIR,
+  },
 };

@@ -1,4 +1,4 @@
-import * as StellarSdk from "@stellar/stellar-sdk";
+import { Horizon } from "@stellar/stellar-sdk";
 import { prisma } from "../../config/database";
 import { AppError } from "../../middleware/errorHandler";
 import { assertIfMatchHeaderPresent } from "../../utils/walletConcurrency";
@@ -137,7 +137,7 @@ export async function fetchWalletBalance(userId: string): Promise<{
     return { snapshot: cached.value, walletVersion: user.walletVersion };
   }
 
-  const server = new StellarSdk.Horizon.Server(horizonUrl);
+  const server = new Horizon.Server(horizonUrl);
 
   try {
     const account = await server.loadAccount(user.stellarAddress);

@@ -4,15 +4,11 @@ import path from "path";
 import fs from "fs";
 import { config } from "./env";
 import { FinancialLogPayload, FinancialEventEnvironment } from "../types/logging";
+import { redactFormat, redactPii } from "./logRedaction";
 
-export type LogLevel =
-  | "error"
-  | "warn"
-  | "info"
-  | "http"
-  | "verbose"
-  | "debug"
-  | "silly";
+export { redactFormat, redactLogValue, redactPii } from "./logRedaction";
+
+export type LogLevel = "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly";
 
 export function resolveTransportLogLevels(options: {
   nodeEnv: string;
@@ -46,10 +42,12 @@ const logFormat = winston.format.combine(
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
   winston.format.errors({ stack: true }),
   winston.format.splat(),
+  redactFormat(),
   winston.format.json(),
 );
 
 const consoleFormat = winston.format.combine(
+  redactFormat(),
   winston.format.colorize(),
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
   winston.format.printf(({ timestamp, level, message, ...meta }) => {
@@ -73,6 +71,7 @@ export const logger = winston.createLogger({
       format: isProduction
         ? consoleFormat
         : winston.format.combine(
+            redactFormat(),
             winston.format.colorize(),
             winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
             winston.format.simple(),
@@ -101,20 +100,24 @@ export const logger = winston.createLogger({
   ],
 });
 
-// ── Structured Financial Logging ─────────────────────────────────────────────
+// Structured Financial Logging
 
 const REQUIRED_FIELDS: (keyof FinancialLogPayload)[] = [
-  "event", "amount", "currency", "userId", "accountId",
-  "idempotencyKey", "transactionId", "status", "correlationId",
+  "event",
+  "amount",
+  "currency",
+  "userId",
+  "accountId",
+  "idempotencyKey",
+  "transactionId",
+  "status",
+  "correlationId",
 ];
 
-const CARD_NUMBER_PATTERN = /\b\d{13,19}\b/g;
-
-function redactPii(value: string): string {
-  return value.replace(CARD_NUMBER_PATTERN, "[REDACTED]");
-}
-
-export function logFinancialEvent(payload: Omit<FinancialLogPayload, "timestamp" | "environment"> & Partial<Pick<FinancialLogPayload, "timestamp" | "environment">>): void {
+export function logFinancialEvent(
+  payload: Omit<FinancialLogPayload, "timestamp" | "environment"> &
+    Partial<Pick<FinancialLogPayload, "timestamp" | "environment">>,
+): void {
   // Apply defaults (caller-supplied values take precedence)
   const entry: FinancialLogPayload = {
     ...payload,

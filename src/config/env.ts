@@ -132,6 +132,7 @@ const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "chang
 
 if (parsed.data.NODE_ENV === "production" && s3ScanWebhookSecret === "change-me-in-production") {
   throw new Error("Missing required environment variable: S3_SCAN_WEBHOOK_SECRET");
+}
 // #382: Fintech partner keys must never be absent in production — an empty
 // Authorization header would be silently accepted by axios and only fail at
 // the first live API call, making the error hard to trace.  Fail at boot
@@ -209,8 +210,7 @@ export const config = {
   logLevel: env.LOG_LEVEL,
   // Per-transport levels keep debug noise out of production aggregators (#398).
   logConsoleLevel:
-    process.env.LOG_LEVEL_CONSOLE ??
-    (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+    process.env.LOG_LEVEL_CONSOLE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFileLevel:
     process.env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFile: process.env.LOG_FILE || "logs/app.log",

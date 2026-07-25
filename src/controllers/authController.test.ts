@@ -222,7 +222,7 @@ describe("authController", () => {
   // ── postSignout ────────────────────────────────────────────────────────────
 
   describe("postSignout", () => {
-    it("revokes the current API key and returns { ok: true }", async () => {
+    it("revokes the current API key and returns 204 No Content", async () => {
       (prisma.apiKey.update as jest.Mock).mockResolvedValue({});
       const res = makeRes();
       const next = makeNext();
@@ -233,8 +233,8 @@ describe("authController", () => {
           data: expect.objectContaining({ revokedAt: expect.any(Date) }),
         }),
       );
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ ok: true });
+      expect(res.status).toHaveBeenCalledWith(204);
+      expect(res.send).toHaveBeenCalled();
     });
 
     it("returns 401 when there is no API key on the request", async () => {

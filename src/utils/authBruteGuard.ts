@@ -1,6 +1,10 @@
-import { cacheService } from "./cache";
+import { cacheService, sanitizeKey } from "./cache";
 import { config } from "../config/env";
 import { logger } from "../config/logger";
+import {
+  maskSecurityIdentifier,
+  normalizeRateLimitIdentifier,
+} from "./identifier";
 
 const KEY_PREFIX = "brute:";
 
@@ -12,24 +16,12 @@ export interface BruteStatus {
 }
 
 export class AuthBruteGuard {
-  private maskIdentifier(identifier: string): string {
-    if (!identifier) return "unknown";
-    if (identifier.includes("@")) {
-      const [local, domain] = identifier.split("@");
-      const safeLocal = local.length <= 2 ? `${local[0] ?? "*"}*` : `${local.slice(0, 2)}***`;
-      return `${safeLocal}@${domain ?? "***"}`;
-    }
-    if (identifier.startsWith("+")) {
-      return `${identifier.slice(0, 4)}****${identifier.slice(-2)}`;
-    }
-    return `${identifier.slice(0, 2)}***`;
-  }
-
   /**
    * Record a failed attempt for an identifier (username/email/phone) and/or IP.
    */
   async recordFailure(identifier: string, ip: string): Promise<void> {
-    const key = this.getKey(identifier, ip);
+    const canonicalIdentifier = normalizeRateLimitIdentifier(identifier);
+    const key = this.getKey(canonicalIdentifier, ip);
     const ttl = config.auth.bruteLockoutMs / 1000;
 
     await cacheService.increment<{ attempts: number }>(key, "attempts", 1, {
@@ -38,7 +30,7 @@ export class AuthBruteGuard {
     });
 
     logger.warn("Auth failure recorded", {
-      identifier: this.maskIdentifier(identifier),
+      identifier: maskSecurityIdentifier(canonicalIdentifier),
       ip,
     });
   }
@@ -47,7 +39,8 @@ export class AuthBruteGuard {
    * Check if an identifier/IP is currently restricted.
    */
   async getStatus(identifier: string, ip: string): Promise<BruteStatus> {
-    const key = this.getKey(identifier, ip);
+    const canonicalIdentifier = normalizeRateLimitIdentifier(identifier);
+    const key = this.getKey(canonicalIdentifier, ip);
     const data = await cacheService.get<{
       attempts: number;
       firstAttemptAt: string;
@@ -75,16 +68,13 @@ export class AuthBruteGuard {
    * Reset failed attempts after a successful login.
    */
   async reset(identifier: string, ip: string): Promise<void> {
-    const key = this.getKey(identifier, ip);
+    const canonicalIdentifier = normalizeRateLimitIdentifier(identifier);
+    const key = this.getKey(canonicalIdentifier, ip);
     await cacheService.delete(key);
   }
 
   private getKey(identifier: string, ip: string): string {
-    // Combine identifier and IP for granular tracking.
-    // In some cases you might want to track them separately, but combining
-    // prevents a single IP from brute-forcing many accounts OR a single account
-    // from being targeted from many IPs (though the latter is harder to stop this way).
-    return `${KEY_PREFIX}${identifier}:${ip}`;
+    return `${KEY_PREFIX}${sanitizeKey(identifier)}:${sanitizeKey(ip)}`;
   }
 }
 

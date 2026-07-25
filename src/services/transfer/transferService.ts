@@ -8,11 +8,13 @@ import {
   Keypair,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { stellarClient } from "../stellar/client";
 import { getBaseFee } from "../stellar/feeManager";
 import { resolveRecipientToStellarAddress } from "../recipient/recipientResolver";
 import crypto from "crypto";
+import { reserveWalletVersion } from "../wallet/walletStateService";
 
 import { logger, logFinancialEvent } from "../../config/logger";
 import type {
@@ -67,7 +69,7 @@ export async function createTransfer(
   params: CreateTransferParams,
   options?: CreateTransferOptions,
 ): Promise<CreateTransferResult> {
-  const { senderUserId, to } = params;
+  const { senderUserId, to, idempotencyKey } = params;
   const amount = params.amountAcbu.trim();
   // Reject scientific notation and enforce up to 7 decimal places (Stellar max precision)
   if (!amount || !/^\d+(\.\d{1,7})?$/.test(amount) || Number(amount) <= 0) {
@@ -89,6 +91,24 @@ export async function createTransfer(
     );
   }
 
+  if (idempotencyKey) {
+    const existingTransfer = await prisma.transaction.findFirst({
+      where: {
+        idempotencyKey,
+        userId: senderUserId,
+        type: "transfer",
+      },
+    });
+    if (existingTransfer) {
+      return {
+        transactionId: existingTransfer.id,
+        status: existingTransfer.status,
+      };
+    }
+  }
+
+  await reserveWalletVersion(senderUserId, options?.ifMatch);
+
   const recipientAddress = await resolveRecipientToStellarAddress(
     to,
     senderUserId,
@@ -102,15 +122,40 @@ export async function createTransfer(
     throw new Error("Cannot transfer to yourself");
   }
 
-  const tx = await prisma.transaction.create({
-    data: {
-      userId: senderUserId,
-      type: "transfer",
-      status: "pending",
-      recipientAddress,
-      acbuAmount: amount,
-    },
-  });
+  let tx;
+  try {
+    tx = await prisma.transaction.create({
+      data: {
+        userId: senderUserId,
+        type: "transfer",
+        status: "pending",
+        recipientAddress,
+        acbuAmount: amount,
+        idempotencyKey: idempotencyKey ?? undefined,
+      },
+    });
+  } catch (createError) {
+    if (
+      idempotencyKey &&
+      createError instanceof Prisma.PrismaClientKnownRequestError &&
+      createError.code === "P2002"
+    ) {
+      const existingTransfer = await prisma.transaction.findFirst({
+        where: {
+          idempotencyKey,
+          userId: senderUserId,
+          type: "transfer",
+        },
+      });
+      if (existingTransfer) {
+        return {
+          transactionId: existingTransfer.id,
+          status: existingTransfer.status,
+        };
+      }
+    }
+    throw createError;
+  }
 
   const correlationId = options?.correlationId ?? crypto.randomUUID();
   // Avoid float arithmetic: parse integer and fractional parts separately to
@@ -125,7 +170,7 @@ export async function createTransfer(
     event: "transfer.initiated",
     status: "pending",
     transactionId: tx.id,
-    idempotencyKey: tx.id,
+    idempotencyKey: idempotencyKey ?? tx.id,
     userId: senderUserId,
     accountId: sender.stellarAddress ?? senderUserId,
     destinationId: recipientAddress,

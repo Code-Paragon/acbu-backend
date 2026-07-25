@@ -50,10 +50,10 @@ export async function postSalaryDisburse(
       })),
     });
 
-    res.status(202).json({
+    res.status(201).json({
       batch_id: result.batchId,
       status: result.status,
-      message: "Salary batch accepted and is being processed.",
+      message: "Salary batch created and is being processed.",
     });
   } catch (e) {
     if (e instanceof z.ZodError) {

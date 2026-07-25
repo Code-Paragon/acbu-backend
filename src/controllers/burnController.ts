@@ -24,6 +24,8 @@ import {
   calculateFee,
 } from "../utils/decimalUtils";
 import { AppError } from "../middleware/errorHandler";
+import { getLatestAcbuRate } from "../services/rates/acbuRateCache";
+import { extractIdempotencyKey } from "../utils/idempotency";
 
 /** Best-effort stringify for Decimal-like values in Prisma models. */
 function toNullableStringDecimal(v: unknown): string | null {
@@ -40,7 +42,7 @@ function toNullableStringDecimal(v: unknown): string | null {
 function respondFromExistingBurnTx(
   res: Response,
   tx: any, // Using any to avoid type issues with Prisma client
-  blockchainTxHash: string,
+  blockchainTxHash: string | null | undefined,
 ): void {
   res.status(200).json({
     transaction_id: tx.id,
@@ -53,7 +55,7 @@ function respondFromExistingBurnTx(
       ({ acbu_ngn: null, timestamp: tx.createdAt.toISOString() } as const),
     status: tx.status,
     estimated_completion: null,
-    blockchain_tx_hash: blockchainTxHash,
+    blockchain_tx_hash: blockchainTxHash ?? undefined,
   });
 }
 
@@ -93,6 +95,26 @@ export async function burnAcbu(
     const { acbu_amount, currency, recipient_account, blockchain_tx_hash } =
       parsed.data;
 
+    const idempotencyKey = extractIdempotencyKey(req);
+    if (idempotencyKey) {
+      const existingBurn = await prisma.transaction.findFirst({
+        where: {
+          idempotencyKey,
+          type: "burn",
+          userId: req.apiKey?.userId ?? undefined,
+          organizationId: req.apiKey?.organizationId ?? undefined,
+        },
+      });
+      if (existingBurn) {
+        respondFromExistingBurnTx(
+          res,
+          existingBurn,
+          existingBurn.blockchainTxHash ?? blockchain_tx_hash ?? null,
+        );
+        return;
+      }
+    }
+
     const addresses = getContractAddresses();
     const burningEnabled = Boolean(addresses.burning);
     if (burningEnabled && blockchain_tx_hash) {
@@ -111,12 +133,7 @@ export async function burnAcbu(
     const feeAcbuDecimal = calculateFee(acbuDecimal, burnFeeBps);
     const acbuAmount7 = decimalToContractNumber(acbuDecimal).toString();
 
-    const acbuRateRecord = await prisma.acbuRate.findFirst({
-      orderBy: { timestamp: "desc" },
-    });
-    if (!acbuRateRecord) {
-      throw new Error("ACBU rates not available");
-    }
+    const acbuRateRecord = await getLatestAcbuRate();
     const rateKey =
       `acbu${currency.charAt(0).toUpperCase() + currency.slice(1).toLowerCase()}` as keyof typeof acbuRateRecord;
     const acbuPerLocal = acbuRateRecord[rateKey];
@@ -158,6 +175,7 @@ export async function burnAcbu(
         data: {
           userId: req.apiKey?.userId ?? undefined,
           organizationId: req.apiKey?.organizationId ?? undefined,
+          idempotencyKey,
           type: "burn",
           status: "pending",
           acbuAmountBurned: new Decimal(acbuNum),
@@ -174,6 +192,29 @@ export async function burnAcbu(
         },
       });
     } catch (createError) {
+      if (
+        idempotencyKey &&
+        createError instanceof Prisma.PrismaClientKnownRequestError &&
+        createError.code === "P2002"
+      ) {
+        const existing = await prisma.transaction.findFirst({
+          where: {
+            idempotencyKey,
+            type: "burn",
+            userId: req.apiKey?.userId ?? undefined,
+            organizationId: req.apiKey?.organizationId ?? undefined,
+          },
+        });
+        if (existing) {
+          respondFromExistingBurnTx(
+            res,
+            existing,
+            existing.blockchainTxHash ?? blockchain_tx_hash ?? null,
+          );
+          return;
+        }
+      }
+
       const isDuplicateBurnHash =
         burningEnabled &&
         Boolean(blockchain_tx_hash) &&

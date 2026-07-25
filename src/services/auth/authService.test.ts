@@ -9,7 +9,7 @@ import { prisma } from "../../config/database";
 import { generateApiKey } from "../../middleware/auth";
 import { verifyChallengeToken, signChallengeToken } from "../../utils/jwt";
 import { logAudit } from "../audit";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { totp } from "otplib";
 import { getRabbitMQChannel, QUEUES } from "../../config/rabbitmq";
 
@@ -59,7 +59,7 @@ jest.mock("../audit", () => ({
   logAudit: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock("bcryptjs", () => ({
+jest.mock("bcrypt", () => ({
   compare: jest.fn(),
   hash: jest.fn(),
 }));

@@ -1,4 +1,4 @@
-import { contractAddresses } from "../../config/contracts";
+import { getContractAddresses } from "../../config/contracts";
 import { MintingService } from "./acbuMinting.service";
 import { BurningService } from "./acbuBurning.service";
 import { OracleService } from "./acbuOracle.service";
@@ -10,6 +10,7 @@ import { EscrowService } from "./acbuEscrow.service";
 /**
  * Initialize contract services with deployed contract addresses (acbu_* naming)
  */
+const contractAddresses = getContractAddresses();
 export const acbuMintingService = new MintingService(contractAddresses.minting);
 export const acbuBurningService = new BurningService(contractAddresses.burning);
 export const acbuOracleService = new OracleService(contractAddresses.oracle);

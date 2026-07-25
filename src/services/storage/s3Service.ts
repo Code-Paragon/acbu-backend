@@ -48,6 +48,15 @@ export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 // ── S3 client (lazy singleton) ────────────────────────────────────────────────
 let _s3Client: S3Client | null = null;
 
+export function requireConfiguredS3Bucket(bucket: string | undefined): string {
+  const normalizedBucket = bucket?.trim();
+  if (!normalizedBucket) {
+    throw new Error("S3 bucket is not configured");
+  }
+
+  return normalizedBucket;
+}
+
 function getS3Client(): S3Client {
   if (!_s3Client) {
     _s3Client = new S3Client({
@@ -143,11 +152,16 @@ export async function generateUploadUrl(
 
   const objectKey = buildObjectKey(userId, documentKind, documentId);
   const expiresAt = Math.floor(Date.now() / 1000) + UPLOAD_URL_TTL_SECONDS;
+  const bucket = requireConfiguredS3Bucket(config.s3.bucket);
 
   const command = new PutObjectCommand({
-    Bucket: config.s3.bucket,
+    Bucket: bucket,
     Key: objectKey,
     ContentType: mimeType,
+    // PII documents must never be publicly accessible
+    ACL: "private",
+    // Enforce encryption at rest at the object level
+    ServerSideEncryption: "AES256",
     // Tag the object immediately as pending scan — the virus-scan hook reads this
     Tagging: "scan-status=pending&owner=" + encodeURIComponent(userId),
     Metadata: {
@@ -223,9 +237,10 @@ export async function generateDownloadUrl(
   }
 
   const expiresAt = Math.floor(Date.now() / 1000) + DOWNLOAD_URL_TTL_SECONDS;
+  const bucket = requireConfiguredS3Bucket(config.s3.bucket);
 
   const command = new GetObjectCommand({
-    Bucket: config.s3.bucket,
+    Bucket: bucket,
     Key: objectKey,
   });
 
@@ -261,9 +276,10 @@ export async function getObjectScanStatus(
 ): Promise<string> {
   try {
     const client = getS3Client();
+    const bucket = requireConfiguredS3Bucket(config.s3.bucket);
     // Use HeadObject to confirm the object exists first
     await client.send(
-      new HeadObjectCommand({ Bucket: config.s3.bucket, Key: objectKey }),
+      new HeadObjectCommand({ Bucket: bucket, Key: objectKey }),
     );
 
     // For local/test environments where no scanner runs, skip the tag read
@@ -276,7 +292,7 @@ export async function getObjectScanStatus(
     // Tag is set to "pending" on upload and updated to "clean" or "infected"
     // by the virus-scan webhook once the scanner finishes.
     const tagging = await client.send(
-      new GetObjectTaggingCommand({ Bucket: config.s3.bucket, Key: objectKey }),
+      new GetObjectTaggingCommand({ Bucket: bucket, Key: objectKey }),
     );
     const scanTag = tagging.TagSet?.find((t) => t.Key === "scan-status");
     const status = scanTag?.Value ?? "pending";
@@ -299,9 +315,10 @@ export async function getObjectScanStatus(
  * Called by the scan webhook endpoint once the scanner reports clean.
  */
 export async function markObjectClean(objectKey: string): Promise<void> {
+  const bucket = requireConfiguredS3Bucket(config.s3.bucket);
   await getS3Client().send(
     new PutObjectTaggingCommand({
-      Bucket: config.s3.bucket,
+      Bucket: bucket,
       Key: objectKey,
       Tagging: {
         TagSet: [{ Key: "scan-status", Value: "clean" }],
@@ -316,9 +333,10 @@ export async function markObjectClean(objectKey: string): Promise<void> {
  * Called by the scan webhook endpoint once the scanner reports a threat.
  */
 export async function markObjectInfected(objectKey: string): Promise<void> {
+  const bucket = requireConfiguredS3Bucket(config.s3.bucket);
   await getS3Client().send(
     new PutObjectTaggingCommand({
-      Bucket: config.s3.bucket,
+      Bucket: bucket,
       Key: objectKey,
       Tagging: {
         TagSet: [{ Key: "scan-status", Value: "infected" }],

@@ -14,15 +14,16 @@
  * 3. Discrepancy - logged as warning if exceeds tolerance
  */
 
-import { prisma } from "../../config/database";
+import { prismaReplica } from "../../config/database";
 import { logger } from "../../config/logger";
 import { ReserveTracker } from "../reserve/ReserveTracker";
+import { getLatestReserves } from "../reports/reportService";
 
 // Constants
 const DEFAULT_TOLERANCE_PERCENTAGE = 0.01; // 0.01%
 const DAYS_FOR_FX_FALLBACK = 7; // Look back 7 days for FX fallback
 
-type DecimalLike = { toNumber: () => number } | null | undefined;
+type DecimalLike = { toString: () => string } | null | undefined;
 
 interface TransactionAggregate {
   currency: string;
@@ -91,10 +92,13 @@ interface EnterpriseTreasuryResult {
 }
 
 /**
- * Convert Decimal or number-like value to number, defaulting to 0 if null/undefined
+ * Convert exact Decimal values at this reporting boundary only.
+ *
+ * Do not call Prisma Decimal#toNumber() directly in settlement logic; keep exact
+ * values as Decimal/string until a numeric API response is explicitly required.
  */
 function decimalToNumber(value: DecimalLike): number {
-  return value?.toNumber() ?? 0;
+  return Number(value?.toString() ?? "0");
 }
 
 /**
@@ -102,7 +106,7 @@ function decimalToNumber(value: DecimalLike): number {
  */
 async function getFxRateWithFallback(currency: string): Promise<FxRate | null> {
   // Try to get the most recent rate
-  const currentRate = await prisma.oracleRate.findFirst({
+  const currentRate = await prismaReplica.oracleRate.findFirst({
     where: { currency },
     orderBy: { timestamp: "desc" },
     select: { rateUsd: true, timestamp: true },
@@ -118,10 +122,8 @@ async function getFxRateWithFallback(currency: string): Promise<FxRate | null> {
   }
 
   // Fallback: look for any rate within the last DAYS_FOR_FX_FALLBACK days
-  const fallbackDate = new Date(
-    Date.now() - DAYS_FOR_FX_FALLBACK * 24 * 60 * 60 * 1000,
-  );
-  const fallbackRate = await prisma.oracleRate.findFirst({
+  const fallbackDate = new Date(Date.now() - DAYS_FOR_FX_FALLBACK * 24 * 60 * 60 * 1000);
+  const fallbackRate = await prismaReplica.oracleRate.findFirst({
     where: {
       currency,
       timestamp: { gte: fallbackDate },
@@ -133,9 +135,7 @@ async function getFxRateWithFallback(currency: string): Promise<FxRate | null> {
   if (fallbackRate) {
     logger.warn("Using fallback FX rate for currency", {
       currency,
-      daysOld: Math.floor(
-        (Date.now() - fallbackRate.timestamp.getTime()) / (24 * 60 * 60 * 1000),
-      ),
+      daysOld: Math.floor((Date.now() - fallbackRate.timestamp.getTime()) / (24 * 60 * 60 * 1000)),
     });
     return {
       currency,
@@ -155,11 +155,12 @@ async function getFxRateWithFallback(currency: string): Promise<FxRate | null> {
 async function aggregateTransactionsBySegment(): Promise<
   Map<string, TransactionAggregate>
 > {
-  const transactions = await prisma.transaction.findMany({
+  const transactions = await prismaReplica.transaction.findMany({
     where: {
       status: { in: ["completed", "processing"] },
       type: { in: ["mint", "burn", "transfer"] },
     },
+    take: 50_000, // #437: cap to prevent OOM on large tables
     select: {
       type: true,
       localCurrency: true,
@@ -202,20 +203,8 @@ async function aggregateTransactionsBySegment(): Promise<
 /**
  * Get latest reserves by currency and segment with null handling (COALESCE logic)
  */
-async function getLatestReservesBySegment(): Promise<
-  Map<string, ReserveSnapshot>
-> {
-  const reserves = await prisma.reserve.findMany({
-    orderBy: { timestamp: "desc" },
-    distinct: ["currency", "segment"],
-    select: {
-      currency: true,
-      segment: true,
-      reserveAmount: true,
-      reserveValueUsd: true,
-      timestamp: true,
-    },
-  });
+async function getLatestReservesBySegment(): Promise<Map<string, ReserveSnapshot>> {
+  const reserves = await getLatestReserves();
 
   const reserveMap = new Map<string, ReserveSnapshot>();
 
@@ -242,8 +231,7 @@ function reconcileTotals(
   tolerancePercentage: number = DEFAULT_TOLERANCE_PERCENTAGE,
 ): ReconciliationResult {
   const discrepancy = Math.abs(ledgerTotal - calculatedTotal);
-  const discrepancyPercentage =
-    ledgerTotal > 0 ? (discrepancy / ledgerTotal) * 100 : 0;
+  const discrepancyPercentage = ledgerTotal > 0 ? (discrepancy / ledgerTotal) * 100 : 0;
 
   const isReconciled = discrepancyPercentage <= tolerancePercentage;
   const warnings: string[] = [];
@@ -366,36 +354,19 @@ export async function getEnterpriseTreasury(
     // Build treasury for each currency
     for (const currency of currencies) {
       const txReserve =
-        reservesBySegment.get(
-          `${currency}:${ReserveTracker.SEGMENT_TRANSACTIONS}`,
-        ) ?? null;
+        reservesBySegment.get(`${currency}:${ReserveTracker.SEGMENT_TRANSACTIONS}`) ?? null;
       const invReserve =
-        reservesBySegment.get(
-          `${currency}:${ReserveTracker.SEGMENT_INVESTMENT_SAVINGS}`,
-        ) ?? null;
+        reservesBySegment.get(`${currency}:${ReserveTracker.SEGMENT_INVESTMENT_SAVINGS}`) ?? null;
 
-      const [transactionsSegment, investmentSavingsSegment] = await Promise.all(
-        [
-          buildTreasurySegment(
-            currency,
-            ReserveTracker.SEGMENT_TRANSACTIONS,
-            txReserve,
-          ),
-          buildTreasurySegment(
-            currency,
-            ReserveTracker.SEGMENT_INVESTMENT_SAVINGS,
-            invReserve,
-          ),
-        ],
-      );
+      const [transactionsSegment, investmentSavingsSegment] = await Promise.all([
+        buildTreasurySegment(currency, ReserveTracker.SEGMENT_TRANSACTIONS, txReserve),
+        buildTreasurySegment(currency, ReserveTracker.SEGMENT_INVESTMENT_SAVINGS, invReserve),
+      ]);
 
       const combined = {
-        reserveAmount:
-          transactionsSegment.reserveAmount +
-          investmentSavingsSegment.reserveAmount,
+        reserveAmount: transactionsSegment.reserveAmount + investmentSavingsSegment.reserveAmount,
         reserveValueUsd:
-          transactionsSegment.reserveValueUsd +
-          investmentSavingsSegment.reserveValueUsd,
+          transactionsSegment.reserveValueUsd + investmentSavingsSegment.reserveValueUsd,
       };
 
       totalBalanceUsd += combined.reserveValueUsd;
@@ -417,11 +388,7 @@ export async function getEnterpriseTreasury(
       (sum, tx) => sum + tx.totalMinted - tx.totalBurned + tx.netTransferred,
       0,
     );
-    const reconciliation = reconcileTotals(
-      totalBalanceUsd,
-      calculatedTotal,
-      tolerancePercentage,
-    );
+    const reconciliation = reconcileTotals(totalBalanceUsd, calculatedTotal, tolerancePercentage);
 
     const result: EnterpriseTreasuryResult = {
       totalBalanceUsd,

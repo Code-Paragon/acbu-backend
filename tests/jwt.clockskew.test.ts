@@ -77,4 +77,24 @@ describe("B-065 — JWT clock skew / leeway handling", () => {
     );
     expect(() => verifyChallengeToken(token)).toThrow();
   });
+
+  it("rejects OAuth access tokens with typ at+JWT (JWT confusion)", () => {
+    const token = jwt.sign(
+      { userId: "user-abc", aud: AUDIENCE, iss: ISSUER },
+      SECRET,
+      {
+        expiresIn: "5m",
+        header: { typ: "at+JWT", alg: "HS256" },
+      },
+    );
+    expect(() => verifyChallengeToken(token)).toThrow();
+  });
+
+  it("signs challenge tokens with typ JWT", () => {
+    const token = signChallengeToken("user-abc");
+    const header = jwt.decode(token, { complete: true });
+    expect(header && typeof header !== "string" ? header.header.typ : null).toBe(
+      "JWT",
+    );
+  });
 });

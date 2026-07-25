@@ -1,5 +1,13 @@
 describe("env validation", () => {
   const ORIGINAL = process.env;
+  const REQUIRED_ENV = {
+    DATABASE_URL: "postgresql://u:p@localhost:5432/db",
+    MONGODB_URI: "mongodb://localhost:27017/db",
+    RABBITMQ_URL: "amqp://localhost:5672",
+    JWT_SECRET: "test-secret-that-is-at-least-32-characters-long",
+    PRISMA_ACCELERATE_URL: "prisma://accelerate.prisma-data.net/?api_key=test",
+    CORS_ORIGIN: "https://app.acbu.io",
+  };
 
   beforeEach(() => {
     jest.resetModules();
@@ -26,7 +34,9 @@ describe("env validation", () => {
   });
 
   it("loads successfully with all required vars set", () => {
-    expect(() => require("../src/config/env")).not.toThrow();
+    const { config } = require("../src/config/env");
+    expect(config.redis.url).toBeUndefined();
+    expect(config.s3.bucket).toBeUndefined();
   });
 
   it("coerces PORT to a number", () => {
@@ -42,8 +52,52 @@ describe("env validation", () => {
     expect(config.logLevel).toBe("debug");
   });
 
+  it("coerces rate-limit fallback config values from env strings", () => {
+    process.env.RATE_LIMIT_FALLBACK_MAX_REQUESTS = "42";
+    process.env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD = "7";
+    process.env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS = "90000";
+
+    const { config } = require("../src/config/env");
+
+    expect(config.rateLimitFallbackMaxRequests).toBe(42);
+    expect(config.rateLimitCircuitBreakerThreshold).toBe(7);
+    expect(config.rateLimitCircuitBreakerCooldownMs).toBe(90000);
+  });
+
   it("throws when LOG_LEVEL is invalid", () => {
     process.env.LOG_LEVEL = "invalid_level";
     expect(() => require("../src/config/env")).toThrow(/LOG_LEVEL/);
+  });
+
+  it("throws when CORS_ORIGIN contains wildcard", () => {
+    process.env.CORS_ORIGIN = "*";
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("../src/config/env");
+    }).toThrow(/wildcard/i);
+  });
+
+  it("throws in production when S3_SCAN_WEBHOOK_SECRET is the placeholder", () => {
+    process.env = {
+      ...ORIGINAL,
+      ...REQUIRED_ENV,
+      NODE_ENV: "production",
+      S3_SCAN_WEBHOOK_SECRET: "change-me-in-production",
+    };
+
+    expect(() => require("../src/config/env")).toThrow(
+      /S3_SCAN_WEBHOOK_SECRET/,
+    );
+  });
+
+  it("loads in production when S3_SCAN_WEBHOOK_SECRET is configured", () => {
+    process.env = {
+      ...ORIGINAL,
+      ...REQUIRED_ENV,
+      NODE_ENV: "production",
+      S3_SCAN_WEBHOOK_SECRET: "super-secret-value",
+    };
+
+    expect(() => require("../src/config/env")).not.toThrow();
   });
 });

@@ -34,8 +34,8 @@ model Organization {
 
 model User {
   id                     String           @id @default(uuid()) @db.Uuid
-  stellarAddress         String?          @unique @db.VarChar(56)
-  kycStatus              String           @default("pending") @db.VarChar(20)
+  stellarAddress         String?          @unique @map("stellar_address") @db.VarChar(56)
+  kycStatus              String           @default("pending") @map("kyc_status") @db.VarChar(20)
   kycVerifiedAt          DateTime?        @map("kyc_verified_at") @db.Timestamp(6)
   countryCode            String?          @map("country_code") @db.VarChar(3)
   username               String?          @unique @db.VarChar(64)
@@ -47,6 +47,7 @@ model User {
   passcodeHash           String?          @map("passcode_hash") @db.VarChar(255)
   encryptedStellarSecret String?          @map("encrypted_stellar_secret") @db.VarChar(512)
   keyEncryptionHint      String?          @map("key_encryption_hint") @db.VarChar(50)
+  walletVersion          Int              @default(0) @map("wallet_version")
   twoFaMethod            String?          @map("two_fa_method") @db.VarChar(20)
   totpSecretEncrypted    String?          @map("totp_secret_encrypted") @db.VarChar(512)
   actorType              String           @default("retail") @map("actor_type") @db.VarChar(20)
@@ -69,6 +70,7 @@ model User {
   organization           Organization?    @relation("UserOrganization", fields: [organizationId], references: [id])
   salaryBatches          SalaryBatch[]
   salarySchedules        SalarySchedule[]
+  refreshTokens          RefreshToken[]
 
   @@index([stellarAddress], map: "idx_stellar_address")
   @@index([username], map: "idx_username")
@@ -128,7 +130,7 @@ model Reserve {
   reserveValueUsd Decimal  @map("reserve_value_usd") @db.Decimal(20, 2)
   timestamp       DateTime @default(now()) @db.Timestamp(6)
 
-  @@unique([currency, segment, timestamp])
+  @@unique([currency, segment, timestamp], map: "reserves_currency_segment_timestamp_key")
   @@index([currency], map: "idx_reserves_currency")
   @@index([segment], map: "idx_reserves_segment")
   @@index([timestamp], map: "idx_reserves_timestamp")
@@ -167,8 +169,7 @@ model OracleRate {
   validatorSignatures Json?    @map("validator_signatures")
   timestamp           DateTime @default(now()) @db.Timestamp(6)
 
-  @@unique([currency, timestamp])
-  @@index([currency], map: "idx_oracle_rates_currency")
+  @@unique([currency, timestamp], map: "oracle_rates_currency_timestamp_key")
   @@index([timestamp], map: "idx_oracle_rates_timestamp")
   @@map("oracle_rates")
 }
@@ -207,7 +208,7 @@ model BasketMetrics {
   source         String?  @db.VarChar(100)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamp(6)
 
-  @@unique([currency, period])
+  @@unique([currency, period], map: "basket_metrics_currency_period_key")
   @@index([currency], map: "idx_basket_metrics_currency")
   @@index([period], map: "idx_basket_metrics_period")
   @@map("basket_metrics")
@@ -223,7 +224,7 @@ model BasketConfig {
   proposalId    String?  @map("proposal_id") @db.Uuid
   status        String   @db.VarChar(20) // proposed | approved | active
 
-  @@unique([effectiveFrom, currency])
+  @@unique([effectiveFrom, currency], map: "basket_config_effective_from_currency_key")
   @@index([status], map: "idx_basket_config_status")
   @@index([effectiveFrom], map: "idx_basket_config_effective_from")
   @@index([status, effectiveFrom(sort: Desc)], map: "idx_basket_config_current")
@@ -290,6 +291,7 @@ model Webhook {
 model OnRampSwap {
   id             String    @id @default(uuid()) @db.Uuid
   userId         String    @map("user_id") @db.Uuid
+  idempotencyKey String?   @unique @map("idempotency_key") @db.VarChar(255)
   stellarAddress String    @map("stellar_address") @db.VarChar(56)
   source         String    @default("xlm_deposit") @db.VarChar(20) // 'usdc_deposit' | 'xlm_deposit'
   xlmAmount      Decimal?  @map("xlm_amount") @db.Decimal(20, 7)
@@ -373,7 +375,7 @@ model UserPasskey {
 model UserDevice {
   id                   String   @id @default(uuid()) @db.Uuid
   userId               String   @map("user_id") @db.Uuid
-  fingerprint          String   @db.VarChar(64)
+  fingerprint          String   @map("fingerprint") @db.VarChar(64)
   userAgent            String?  @map("user_agent") @db.VarChar(512)
   lastIp               String?  @map("last_ip") @db.VarChar(45)
   isTrusted            Boolean  @default(false) @map("is_trusted")
@@ -424,7 +426,7 @@ model UserContact {
   user        User  @relation("UserContacts", fields: [userId], references: [id], onDelete: Cascade)
   contactUser User? @relation("ContactOf", fields: [contactUserId], references: [id], onDelete: SetNull)
 
-  @@unique([userId, contactUserId])
+  @@unique([userId, contactUserId], map: "user_contacts_user_id_contact_user_id_key")
   @@index([userId], map: "idx_user_contact_user_id")
   @@index([contactUserId], map: "idx_user_contact_contact_user_id")
   @@map("user_contacts")
@@ -455,8 +457,8 @@ model KycApplication {
   feeTxHash               String?   @map("fee_tx_hash") @db.VarChar(255)
   feeMintTransactionId    String?   @map("fee_mint_transaction_id") @db.Uuid
   machineConfidence       Decimal?  @map("machine_confidence") @db.Decimal(3, 2)
-  machineRedactedPayload  Json?     @map("machine_redacted_payload")
-  machineExtractedPayload Json?     @map("machine_extracted_payload")
+  machineRedactedPayload  String?   @map("machine_redacted_payload") @db.Text
+  machineExtractedPayload String?   @map("machine_extracted_payload") @db.Text
   rejectionReason         String?   @map("rejection_reason") @db.VarChar(500)
   resolvedAt              DateTime? @map("resolved_at") @db.Timestamp(6)
   createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
@@ -507,7 +509,7 @@ model KycValidator {
   validations KycValidation[]
   rewards     KycValidatorReward[]
 
-  @@unique([userId, countryCode])
+  @@unique([userId, countryCode], map: "kyc_validators_user_id_country_code_key")
   @@index([countryCode], map: "idx_kyc_validator_country")
   @@index([status], map: "idx_kyc_validator_status")
   @@map("kyc_validators")
@@ -634,7 +636,7 @@ model RecoveryAttempt {
   userId     String   @map("user_id") @db.Uuid
   identifier String   @db.VarChar(255)
   ip         String?  @db.VarChar(45)
-  userAgent  String?  @db.VarChar(512)
+  userAgent  String?  @map("user_agent") @db.VarChar(512)
   success    Boolean  @default(false)
   reason     String?  @db.VarChar(255)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
@@ -663,3 +665,22 @@ model InvestmentStrategy {
   @@map("investment_strategies")
 }
 
+model RefreshToken {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  tokenFamilyId   String    @map("token_family_id") @db.Uuid
+  tokenHash       String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamp(6)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamp(6)
+  replacedByToken String?   @map("replaced_by_token") @db.VarChar(255)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  lastUsedAt      DateTime? @map("last_used_at") @db.Timestamp(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_refresh_tokens_user_id")
+  @@index([tokenFamilyId], map: "idx_refresh_tokens_token_family_id")
+  @@index([tokenHash], map: "idx_refresh_tokens_token_hash")
+  @@index([expiresAt], map: "idx_refresh_tokens_expires_at")
+  @@map("refresh_tokens")
+}

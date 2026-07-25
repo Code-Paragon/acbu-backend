@@ -4,8 +4,9 @@
  * If 2FA enabled, returns challenge_token (JWT); else issues api_key.
  * OTP (sms/email) is created and published to RabbitMQ OTP_SEND for delivery.
  */
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { totp } from "otplib";
+import { randomUUID } from "crypto";
 import { config } from "../../config/env";
 import { prisma } from "../../config/database";
 import { generateApiKey } from "../../middleware/auth";
@@ -39,6 +40,7 @@ export interface SigninParams {
   passcode: string;
   ip: string;
   captchaToken?: string;
+  issueRefreshToken?: boolean;
 }
 
 export type SigninResult =
@@ -50,12 +52,15 @@ export type SigninResult =
       passphrase?: string;
       encryption_method_required?: boolean;
       stellar_address?: string | null;
+      refresh_token?: string;
+      refresh_token_expires_at?: string;
     };
 
 export interface Verify2faParams {
   challenge_token: string;
   code: string;
   ip: string;
+  issueRefreshToken?: boolean;
 }
 
 export interface Verify2faResult {
@@ -65,6 +70,8 @@ export interface Verify2faResult {
   passphrase?: string;
   encryption_method_required?: boolean;
   stellar_address?: string | null;
+  refresh_token?: string;
+  refresh_token_expires_at?: string;
 }
 
 export interface RequestAdminMfaChallengeResult {
@@ -106,6 +113,7 @@ const OTP_EXPIRY_MINUTES = 10;
 const ADMIN_TIER = "enterprise";
 const BREAK_GLASS_DEFAULT_TTL_MINUTES = 15;
 const BREAK_GLASS_MAX_TTL_MINUTES = 60;
+const REFRESH_TOKEN_EXPIRY_DAYS = 30;
 const ADMIN_SCOPES = [
   "p2p:admin",
   "sme:admin",
@@ -270,10 +278,10 @@ export async function signup(params: SignupParams): Promise<SignupResult> {
   }
   if (
     !params.passcode ||
-    params.passcode.length < 4 ||
+    params.passcode.length < 8 ||
     params.passcode.length > 64
   ) {
-    throw new Error("Passcode must be 4–64 characters");
+    throw new Error("Passcode must be 8–64 characters");
   }
   const existing = await prisma.user.findFirst({
     where: { username },
@@ -447,12 +455,21 @@ export async function signin(params: SigninParams): Promise<SigninResult> {
     passphrase?: string;
     encryption_method_required?: boolean;
     stellar_address?: string | null;
+    refresh_token?: string;
+    refresh_token_expires_at?: string;
   } = { api_key, user_id: user.id, stellar_address: userFull?.stellarAddress };
   if (wallet.wallet_created && wallet.passphrase) {
     out.wallet_created = true;
     out.passphrase = wallet.passphrase;
     out.encryption_method_required = true;
   }
+
+  if (params.issueRefreshToken) {
+    const refreshToken = await issueRefreshToken({ userId: user.id });
+    out.refresh_token = refreshToken.refresh_token;
+    out.refresh_token_expires_at = refreshToken.expires_at;
+  }
+
   return out;
 }
 
@@ -567,12 +584,21 @@ export async function verify2fa(
     passphrase?: string;
     encryption_method_required?: boolean;
     stellar_address?: string | null;
+    refresh_token?: string;
+    refresh_token_expires_at?: string;
   } = { api_key, user_id: user.id, stellar_address: userFull?.stellarAddress };
   if (wallet.wallet_created && wallet.passphrase) {
     out.wallet_created = true;
     out.passphrase = wallet.passphrase;
     out.encryption_method_required = true;
   }
+
+  if (params.issueRefreshToken) {
+    const refreshToken = await issueRefreshToken({ userId: user.id });
+    out.refresh_token = refreshToken.refresh_token;
+    out.refresh_token_expires_at = refreshToken.expires_at;
+  }
+
   return out;
 }
 
@@ -833,6 +859,241 @@ export async function revokePrivilegedKey(
     keyType: targetKey.keyType,
     organizationId: user.organizationId ?? undefined,
     reason,
+  });
+
+  return { ok: true };
+}
+
+export interface IssueRefreshTokenParams {
+  userId: string;
+}
+
+export interface IssueRefreshTokenResult {
+  refresh_token: string;
+  expires_at: string;
+}
+
+export interface RefreshAccessTokenParams {
+  refresh_token: string;
+}
+
+export interface RefreshAccessTokenResult {
+  api_key: string;
+  refresh_token: string;
+  user_id: string;
+  expires_at: string;
+}
+
+export interface RevokeRefreshTokenParams {
+  refresh_token: string;
+}
+
+function generateSecureRefreshToken(): string {
+  const bytes = Buffer.from(randomUUID()).toString('base64');
+  return bytes + Buffer.from(randomUUID()).toString('base64');
+}
+
+async function hashRefreshToken(token: string): Promise<string> {
+  return bcrypt.hash(token, 12);
+}
+
+/**
+ * Issue a new refresh token with a new token family.
+ * This is called during initial authentication.
+ */
+export async function issueRefreshToken(
+  params: IssueRefreshTokenParams,
+): Promise<IssueRefreshTokenResult> {
+  const { userId } = params;
+  const token = generateSecureRefreshToken();
+  const tokenHash = await hashRefreshToken(token);
+  const tokenFamilyId = randomUUID();
+  const expiresAt = new Date(
+    Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  await prisma.refreshToken.create({
+    data: {
+      userId,
+      tokenFamilyId,
+      tokenHash,
+      expiresAt,
+    },
+  });
+
+  await logAudit({
+    eventType: "auth",
+    entityType: "refresh_token",
+    action: "refresh_token_issued",
+    performedBy: userId,
+    actorType: "user",
+    keyType: "USER_KEY",
+    newValue: { tokenFamilyId },
+  });
+
+  logger.info("Refresh token issued", { userId, tokenFamilyId });
+
+  return {
+    refresh_token: token,
+    expires_at: expiresAt.toISOString(),
+  };
+}
+
+/**
+ * Validate a refresh token and rotate it (token-family rotation).
+ * When a refresh token is used, the entire family should be invalidated
+ * to detect token theft. A new token in a new family is issued.
+ */
+export async function refreshAccessToken(
+  params: RefreshAccessTokenParams,
+): Promise<RefreshAccessTokenResult> {
+  const { refresh_token } = params;
+
+  const tokenHash = await hashRefreshToken(refresh_token);
+  const now = new Date();
+
+  const existingToken = await prisma.refreshToken.findFirst({
+    where: {
+      tokenHash,
+      revokedAt: null,
+      expiresAt: { gt: now },
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          actorType: true,
+          organizationId: true,
+        },
+      },
+    },
+  });
+
+  if (!existingToken) {
+    throw new Error("Invalid or expired refresh token");
+  }
+
+  const { user, tokenFamilyId } = existingToken;
+
+  // Token-family rotation: invalidate all tokens in the same family
+  // This detects token theft - if an attacker tries to use an old token,
+  // the family will already be revoked
+  await prisma.refreshToken.updateMany({
+    where: {
+      tokenFamilyId,
+      revokedAt: null,
+    },
+    data: {
+      revokedAt: now,
+      replacedByToken: tokenHash,
+    },
+  });
+
+  // Issue a new API key
+  const api_key = await generateApiKey(user.id, [], { keyType: "USER_KEY" });
+
+  // Issue a new refresh token in a NEW family
+  const newToken = generateSecureRefreshToken();
+  const newTokenHash = await hashRefreshToken(newToken);
+  const newTokenFamilyId = randomUUID();
+  const newExpiresAt = new Date(
+    Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  await prisma.refreshToken.create({
+    data: {
+      userId: user.id,
+      tokenFamilyId: newTokenFamilyId,
+      tokenHash: newTokenHash,
+      expiresAt: newExpiresAt,
+    },
+  });
+
+  await logAudit({
+    eventType: "auth",
+    entityType: "refresh_token",
+    entityId: existingToken.id,
+    action: "refresh_token_rotated",
+    performedBy: user.id,
+    actorType: user.actorType,
+    keyType: "USER_KEY",
+    organizationId: user.organizationId ?? undefined,
+    oldValue: { oldTokenFamilyId: tokenFamilyId },
+    newValue: { newTokenFamilyId },
+  });
+
+  logger.info("Refresh token rotated", {
+    userId: user.id,
+    oldTokenFamilyId: tokenFamilyId,
+    newTokenFamilyId,
+  });
+
+  return {
+    api_key,
+    refresh_token: newToken,
+    user_id: user.id,
+    expires_at: newExpiresAt.toISOString(),
+  };
+}
+
+/**
+ * Revoke a refresh token and its entire family.
+ */
+export async function revokeRefreshToken(
+  params: RevokeRefreshTokenParams,
+): Promise<{ ok: true }> {
+  const { refresh_token } = params;
+
+  const tokenHash = await hashRefreshToken(refresh_token);
+  const now = new Date();
+
+  const existingToken = await prisma.refreshToken.findFirst({
+    where: {
+      tokenHash,
+      revokedAt: null,
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          actorType: true,
+          organizationId: true,
+        },
+      },
+    },
+  });
+
+  if (!existingToken) {
+    throw new Error("Invalid refresh token");
+  }
+
+  const { user, tokenFamilyId } = existingToken;
+
+  // Revoke all tokens in the family
+  await prisma.refreshToken.updateMany({
+    where: {
+      tokenFamilyId,
+      revokedAt: null,
+    },
+    data: {
+      revokedAt: now,
+    },
+  });
+
+  await logAudit({
+    eventType: "auth",
+    entityType: "refresh_token",
+    entityId: existingToken.id,
+    action: "refresh_token_revoked",
+    performedBy: user.id,
+    actorType: user.actorType,
+    keyType: "USER_KEY",
+    organizationId: user.organizationId ?? undefined,
+  });
+
+  logger.info("Refresh token family revoked", {
+    userId: user.id,
+    tokenFamilyId,
   });
 
   return { ok: true };

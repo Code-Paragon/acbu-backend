@@ -8,8 +8,9 @@ import type {
   Store,
 } from "express-rate-limit";
 import { AuthRequest } from "./auth";
-import { cacheService } from "../utils/cache";
+import { cacheService, sanitizeKey } from "../utils/cache";
 import { logger } from "../config/logger";
+import { ErrorCodes } from "../types/errorCodes";
 import { circuitBreaker } from "../utils/circuitBreaker";
 
 type FallbackRateLimitEntry = {
@@ -76,7 +77,7 @@ const enforceFallbackLimit = (
   const ip = req.ip || "unknown";
   const now = Date.now();
   const windowId = Math.floor(now / FALLBACK_WINDOW_MS);
-  const cacheKey = `fallback:ip:${ip}:${windowId}`;
+  const cacheKey = `fallback:ip:${sanitizeKey(ip)}:${windowId}`;
 
   const result = incrementFallback(cacheKey, FALLBACK_WINDOW_MS);
 
@@ -90,7 +91,8 @@ const enforceFallbackLimit = (
     });
     res.status(429).json({
       error: {
-        code: "RATE_LIMIT_EXCEEDED",
+        code: ErrorCodes.RATE_LIMIT_EXCEEDED,
+        error_code: ErrorCodes.RATE_LIMIT_EXCEEDED,
         message: "Rate limit exceeded (degraded mode)",
       },
     });
@@ -241,7 +243,8 @@ export const createRateLimiter = (
     handler: (_req: Request, res: Response) => {
       res.status(429).json({
         error: {
-          code: "RATE_LIMIT_EXCEEDED",
+          code: ErrorCodes.RATE_LIMIT_EXCEEDED,
+          error_code: ErrorCodes.RATE_LIMIT_EXCEEDED,
           message,
           limitType: context,
         },
@@ -266,7 +269,7 @@ export const apiKeyRateLimiter = async (
   const maxRequests = req.apiKey.rateLimit || config.rateLimitMaxRequests;
   const windowMs = config.rateLimitWindowMs;
   const windowId = Math.floor(Date.now() / windowMs);
-  const cacheKey = `rate_limit:api_key:${req.apiKey.id}:${windowId}`;
+  const cacheKey = `rate_limit:api_key:${sanitizeKey(req.apiKey.id)}:${windowId}`;
 
   // Check circuit breaker state - if OPEN, use fallback immediately
   if (!circuitBreaker.canExecute()) {
@@ -296,7 +299,8 @@ export const apiKeyRateLimiter = async (
       // null means cap was hit — return 429 directly
       res.status(429).json({
         error: {
-          code: "RATE_LIMIT_EXCEEDED",
+          code: ErrorCodes.RATE_LIMIT_EXCEEDED,
+          error_code: ErrorCodes.RATE_LIMIT_EXCEEDED,
           message: "API key rate limit exceeded, please try again later.",
           limitType: "api_key" as LimiterContext,
         },

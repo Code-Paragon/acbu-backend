@@ -5,9 +5,9 @@ import {
   eventListener,
   ContractEvent,
 } from "../services/stellar/eventListener";
-import { contractAddresses } from "../config/contracts";
-import { connectRabbitMQ, QUEUES } from "../config/rabbitmq";
+import { getContractAddresses } from "../config/contracts";
 import { logger } from "../config/logger";
+import { savingsVaultEventProducer } from "./producers";
 
 const SAVINGS_VAULT_EFFECT_TYPES = [
   "contract_credited",
@@ -16,7 +16,7 @@ const SAVINGS_VAULT_EFFECT_TYPES = [
 ];
 
 export async function startSavingsVaultEventListener(): Promise<void> {
-  const contractId = contractAddresses.savingsVault;
+  const contractId = getContractAddresses().savingsVault;
   if (!contractId) {
     logger.info(
       "Savings vault event listener skipped: no CONTRACT_SAVINGS_VAULT configured",
@@ -26,27 +26,26 @@ export async function startSavingsVaultEventListener(): Promise<void> {
 
   const handler = async (event: ContractEvent): Promise<void> => {
     try {
-      const ch = await connectRabbitMQ();
-      await ch.assertQueue(QUEUES.ACBU_SAVINGS_VAULT_EVENTS, { durable: true });
-      ch.sendToQueue(
-        QUEUES.ACBU_SAVINGS_VAULT_EVENTS,
-        Buffer.from(
-          JSON.stringify({
-            contractId: event.contractId,
-            type: event.type,
-            data: event.data,
-            ledger: event.ledger,
-            timestamp: event.timestamp,
-          }),
-        ),
-        { persistent: true },
-      );
-      logger.debug("Savings vault event enqueued", {
+      const validatedEvent = {
+        contractId: event.contractId,
+        type: event.type,
+        data: event.data || {},
+        ledger: event.ledger,
+        timestamp: event.timestamp || new Date().toISOString(),
+      };
+
+      await savingsVaultEventProducer.publish(validatedEvent);
+
+      logger.debug("Savings vault event enqueued with validation", {
         type: event.type,
         ledger: event.ledger,
       });
-    } catch (e) {
-      logger.error("Savings vault event enqueue failed", { error: e });
+    } catch (error) {
+      logger.error("Savings vault event enqueue failed", {
+        error: error instanceof Error ? error.message : String(error),
+        eventType: event.type,
+        ledger: event.ledger,
+      });
     }
   };
 
@@ -55,7 +54,7 @@ export async function startSavingsVaultEventListener(): Promise<void> {
     SAVINGS_VAULT_EFFECT_TYPES,
     handler,
   );
-  logger.info("Savings vault event listener registered", {
+  logger.info("Savings vault event listener registered with validation", {
     contractId,
     effectTypes: SAVINGS_VAULT_EFFECT_TYPES,
   });

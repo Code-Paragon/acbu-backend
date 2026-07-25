@@ -35,4 +35,29 @@ describe("getInvestmentWithdrawalTiming", () => {
       isBusinessWithdrawalAllowedDate: true,
     });
   });
+
+  it("passes the timezone to raw SQL as a bound parameter", async () => {
+    const requestedAt = new Date("2026-05-15T09:30:00.000Z");
+    const availableAt = new Date("2026-05-16T09:30:00.000Z");
+    mockQueryRaw.mockResolvedValue([
+      {
+        requestedAt,
+        availableAt,
+        businessCalendarDay: 15,
+      },
+    ]);
+
+    await getInvestmentWithdrawalTiming("Africa/Lagos");
+
+    const query = mockQueryRaw.mock.calls[0]?.[0] as {
+      strings: string[];
+      values: unknown[];
+    };
+    const queryText = query.strings.join("");
+
+    expect(query.values).toContain("Africa/Lagos");
+    expect(queryText).toContain("AT TIME ZONE ");
+    expect(queryText).not.toContain("Africa/Lagos");
+    expect(queryText).not.toContain("'Africa/Lagos'");
+  });
 });

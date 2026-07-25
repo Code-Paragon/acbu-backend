@@ -4,8 +4,8 @@ import { AuthRequest } from "../middleware/auth";
 import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";
 import { logger } from "../config/logger";
-import crypto from "crypto";
 import { getAuditExports } from "../services/reports/reportService";
+import { tombstoneDeleteUser } from "../services/user";
 
 /**
  * GET /compliance/export
@@ -59,37 +59,7 @@ export async function deleteAccount(
       throw new AppError("User-scoped API key required", 401);
     }
 
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // 1. Delete associated sensitive records
-      await tx.apiKey.deleteMany({ where: { userId } });
-      await tx.otpChallenge.deleteMany({ where: { userId } });
-      await tx.userPasskey.deleteMany({ where: { userId } });
-      await tx.userContact.deleteMany({ where: { userId } });
-      await tx.userContact.deleteMany({ where: { contactUserId: userId } });
-      await tx.guardian.deleteMany({ where: { userId } });
-      await tx.guardian.deleteMany({ where: { guardianUserId: userId } });
-
-      // 2. Tombstone the User record
-      const tombstoneSuffix = crypto.randomUUID().substring(0, 8);
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          username: `deleted_${tombstoneSuffix}`,
-          email: null,
-          phoneE164: null,
-          stellarAddress: null,
-          kycStatus: "deleted",
-          encryptedStellarSecret: null,
-          keyEncryptionHint: null,
-          passcodeHash: null,
-          twoFaMethod: null,
-          totpSecretEncrypted: null,
-          privacyHideFromSearch: true,
-        },
-      });
-    });
-
-    logger.info("Account tombstone deleted", { userId });
+    await tombstoneDeleteUser(userId, "deleteAccount");
 
     res.status(204).send();
   } catch (e) {

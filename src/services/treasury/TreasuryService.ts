@@ -17,13 +17,13 @@
 import { prismaReplica } from "../../config/database";
 import { logger } from "../../config/logger";
 import { ReserveTracker } from "../reserve/ReserveTracker";
-import { getTransactionsForTreasuryReport, getLatestReserves } from "../reports/reportService";
+import { getLatestReserves } from "../reports/reportService";
 
 // Constants
 const DEFAULT_TOLERANCE_PERCENTAGE = 0.01; // 0.01%
 const DAYS_FOR_FX_FALLBACK = 7; // Look back 7 days for FX fallback
 
-type DecimalLike = { toNumber: () => number } | null | undefined;
+type DecimalLike = { toString: () => string } | null | undefined;
 
 interface TransactionAggregate {
   currency: string;
@@ -92,10 +92,13 @@ interface EnterpriseTreasuryResult {
 }
 
 /**
- * Convert Decimal or number-like value to number, defaulting to 0 if null/undefined
+ * Convert exact Decimal values at this reporting boundary only.
+ *
+ * Do not call Prisma Decimal#toNumber() directly in settlement logic; keep exact
+ * values as Decimal/string until a numeric API response is explicitly required.
  */
 function decimalToNumber(value: DecimalLike): number {
-  return value?.toNumber() ?? 0;
+  return Number(value?.toString() ?? "0");
 }
 
 /**
@@ -149,8 +152,22 @@ async function getFxRateWithFallback(currency: string): Promise<FxRate | null> {
 /**
  * Aggregate transaction data by currency
  */
-async function aggregateTransactionsBySegment(): Promise<Map<string, TransactionAggregate>> {
-  const transactions = await getTransactionsForTreasuryReport();
+async function aggregateTransactionsBySegment(): Promise<
+  Map<string, TransactionAggregate>
+> {
+  const transactions = await prismaReplica.transaction.findMany({
+    where: {
+      status: { in: ["completed", "processing"] },
+      type: { in: ["mint", "burn", "transfer"] },
+    },
+    take: 50_000, // #437: cap to prevent OOM on large tables
+    select: {
+      type: true,
+      localCurrency: true,
+      acbuAmount: true,
+      acbuAmountBurned: true,
+    },
+  });
 
   const aggregates = new Map<string, TransactionAggregate>();
 

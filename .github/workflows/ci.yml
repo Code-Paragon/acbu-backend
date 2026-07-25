@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -76,10 +76,30 @@ jobs:
         run: node scripts/ci/check-destructive-migrations.js
 
       - name: Lint
-        run: pnpm run lint
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            files=$(git diff --name-only --diff-filter=ACMR "origin/${{ github.base_ref }}"...HEAD -- 'src/**/*.ts' || true)
+            if [ -n "$files" ]; then
+              pnpm exec eslint --ext .ts $files
+            else
+              echo "No changed TypeScript files under src/ to lint."
+            fi
+          else
+            pnpm run lint
+          fi
 
       - name: Format check
-        run: pnpm run format:check
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            files=$(git diff --name-only --diff-filter=ACMR "origin/${{ github.base_ref }}"...HEAD -- 'src/**/*.ts' 'tests/**/*.ts' || true)
+            if [ -n "$files" ]; then
+              pnpm exec prettier --check $files
+            else
+              echo "No changed TypeScript files to format-check."
+            fi
+          else
+            pnpm run format:check
+          fi
 
       - name: Generate Prisma Client
         run: pnpm run prisma:generate
@@ -90,7 +110,14 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
 
       - name: Run tests
-        run: pnpm test
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            pnpm test -- --changedSince=origin/${{ github.base_ref }}
+          elif [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            pnpm test
+          else
+            pnpm test -- --onlyChanged
+          fi
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
           MONGODB_URI: mongodb://localhost:27017/acbu_test

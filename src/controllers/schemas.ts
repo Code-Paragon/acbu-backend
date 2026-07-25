@@ -29,8 +29,10 @@ import {
   patchMeSchema,
   addContactSchema,
   addGuardianSchema,
-  walletConfirmSchema,
 } from "./userController";
+
+// Wallet Controller
+import { walletConfirmSchema } from "./walletController";
 
 // Fiat Controller
 import {

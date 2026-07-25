@@ -1,7 +1,8 @@
-import axios, { AxiosInstance } from "axios";
+import { AxiosInstance } from "axios";
 import { config } from "../../config/env";
 import { logger } from "../../config/logger";
-import { CircuitBreaker } from "../../utils/circuitBreaker"; // Import the class, not the instance
+import { CircuitBreaker } from "../../utils/circuitBreaker";
+import { createHttpClient } from "../http/client";
 import type {
   FintechProvider,
   DisburseRecipient,
@@ -14,14 +15,12 @@ export class FlutterwaveClient implements FintechProvider {
   private breaker: CircuitBreaker;
 
   constructor() {
-    this.client = axios.create({
+    this.client = createHttpClient({
       baseURL: config.flutterwave.baseUrl,
       headers: {
         Authorization: `Bearer ${config.flutterwave.secretKey}`,
         "Content-Type": "application/json",
       },
-      // REQUIREMENT 1: Lower the hard timeout from 30s to 5s so it fails fast
-      timeout: 5000, 
     });
 
     // REQUIREMENT 2: Create a dedicated circuit breaker for Flutterwave
@@ -67,41 +66,20 @@ export class FlutterwaveClient implements FintechProvider {
   }
 
   /**
-   * Helper method to execute requests safely through the circuit breaker with a simple retry strategy
+   * Execute a request through the circuit breaker.
+   * Retry-After-aware retries are handled by the shared HTTP client interceptor.
    */
-  private async requestWrapper<T>(requestFn: () => Promise<T>, retries = 2): Promise<T> {
-    // 1. Check if the circuit allows execution
+  private async requestWrapper<T>(requestFn: () => Promise<T>): Promise<T> {
     if (!this.breaker.canExecute()) {
       throw new Error("Flutterwave service is temporarily unavailable (Circuit Open)");
     }
-
     try {
-      let attempt = 0;
-      while (attempt <= retries) {
-        try {
-          const result = await requestFn();
-          // 2. Record success if the call completes successfully
-          this.breaker.recordSuccess();
-          return result;
-        } catch (error: any) {
-          attempt++;
-          // Only retry on temporary network errors or 5xx server issues; fail immediately on bad data/4xx
-          const isNetworkError = !error.response;
-          const isServerError = error.response?.status >= 500;
-          
-          if (attempt > retries || (!isNetworkError && !isServerError)) {
-            throw error; // Let the outer block catch and record the final failure
-          }
-          
-          // Exponential backoff delay before retrying
-          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
-        }
-      }
-      throw new Error("Request failed after maximum retries");
-    } catch (finalError) {
-      // 3. Record failure to trip the circuit breaker if thresholds are crossed
+      const result = await requestFn();
+      this.breaker.recordSuccess();
+      return result;
+    } catch (error) {
       this.breaker.recordFailure();
-      throw finalError;
+      throw error;
     }
   }
 

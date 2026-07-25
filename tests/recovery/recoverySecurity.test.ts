@@ -3,7 +3,7 @@
  * Tests that second factor is required and security measures work properly
  */
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { 
   unlockApp, 
   verifyRecoveryOtp,

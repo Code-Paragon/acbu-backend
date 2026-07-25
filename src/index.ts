@@ -1,38 +1,50 @@
+// Load environment variables first (handles dotenv loading with proper order)
+import "./config/env";
+
 import { initTracing } from "./config/tracing";
 initTracing();
 
-import express, { type NextFunction, type Request, type Response } from "express";
-<<<<<<< fix/trust-proxy-config
+import "express-async-errors";
+
+import { execSync } from "child_process";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import helmet from "helmet";
-=======
->>>>>>> dev
 import compression from "compression";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config/env";
 import { logger } from "./config/logger";
-import { execSync } from "child_process";
 import { connectMongoDB, disconnectMongoDB } from "./config/mongodb";
 import { connectRabbitMQ, disconnectRabbitMQ } from "./config/rabbitmq";
 import { prisma, connectWithRetry } from "./config/database";
 import { corsMiddleware } from "./middleware/cors";
-import { securityHeadersMiddleware } from "./middleware/securityHeaders";
+import { correlationMiddleware } from "./middleware/correlation";
 import { requestLogger } from "./middleware/logger";
+import { requestMetricsMiddleware } from "./middleware/metrics";
 import { errorHandler, AppError } from "./middleware/errorHandler";
 import { standardRateLimiter } from "./middleware/rateLimiter";
+import { userAgentFilter } from "./middleware/userAgentFilter";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes";
 import { ErrorCodes } from "./types/errorCodes";
-import { registerGracefulShutdown, setHttpServer } from "./gracefulShutdown";
+import { registerGracefulShutdown, setHttpServer, setMemoryMonitorHandle } from "./gracefulShutdown";
+import { startMemoryMonitor } from "./utils/memoryMonitor";
 
 const app: express.Express = express();
 
 // Parse trust proxy hop count safely from environment variables (Default to 0 for local development)
 const trustProxyValue = process.env.TRUST_PROXY
-  ? (isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY))
+  ? isNaN(Number(process.env.TRUST_PROXY))
+    ? process.env.TRUST_PROXY
+    : Number(process.env.TRUST_PROXY)
   : 0;
 
 app.set("trust proxy", trustProxyValue);
+app.set("case sensitive routing", true);
 
 const MAX_REQUEST_BODY_SIZE = "1mb";
 const SUPPORTED_REQUEST_ENCODINGS = new Set(["identity", "gzip"]);
@@ -43,11 +55,7 @@ function normalizeContentEncoding(req: Request): string {
   return (value || "identity").trim().toLowerCase() || "identity";
 }
 
-function validateRequestContentEncoding(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
+function validateRequestContentEncoding(req: Request, _res: Response, next: NextFunction): void {
   const encoding = normalizeContentEncoding(req);
 
   if (!SUPPORTED_REQUEST_ENCODINGS.has(encoding)) {
@@ -63,9 +71,93 @@ function validateRequestContentEncoding(
   next();
 }
 
+/**
+ * Middleware to block GraphQL-like queries and introspection attempts
+ * to prevent attackers from probing the API schema.
+ */
+function blockGraphQLQueries(req: Request, _res: Response, next: NextFunction): void {
+  const path = req.path.toLowerCase();
+  const contentType = req.headers["content-type"]?.toLowerCase() || "";
+
+  // Block common GraphQL paths
+  const graphqlPaths = ["/graphql", "/graphiql", "/playground", "/graphql/playground", "/v1/graphql"];
+  if (graphqlPaths.includes(path)) {
+    logger.warn("Blocked GraphQL endpoint access attempt", {
+      path: req.path,
+      ip: req.ip,
+      method: req.method,
+    });
+    throw new AppError("Not found", 404, ErrorCodes.NOT_FOUND);
+  }
+
+  // Block introspection queries in request body (JSON)
+  if (req.method === "POST" && contentType.includes("application/json") && req.body) {
+    const bodyStr = JSON.stringify(req.body).toLowerCase();
+    // Check for GraphQL introspection patterns (even if someone tries to POST to a REST endpoint)
+    if (bodyStr.includes("__schema") || bodyStr.includes("__type") || bodyStr.includes("introspection")) {
+      logger.warn("Blocked GraphQL introspection attempt", {
+        path: req.path,
+        ip: req.ip,
+        method: req.method,
+      });
+      throw new AppError("Invalid request", 400, ErrorCodes.BAD_REQUEST);
+    }
+  }
+
+  // Block query parameters with GraphQL-like patterns
+  const query = req.query;
+  if (query && typeof query === "object") {
+    const queryStr = JSON.stringify(query).toLowerCase();
+    if (queryStr.includes("__schema") || queryStr.includes("__type") || queryStr.includes("introspection")) {
+      logger.warn("Blocked GraphQL introspection via query params", {
+        path: req.path,
+        ip: req.ip,
+        method: req.method,
+      });
+      throw new AppError("Invalid request", 400, ErrorCodes.BAD_REQUEST);
+    }
+  }
+
+  next();
+}
+
+function assertPrismaMigrationHistoryReplicated(): void {
+  if (
+    config.nodeEnv === "production" &&
+    !config.prismaMigrationHistory.replicated
+  ) {
+    throw new Error(
+      "Prisma migration history replication is not configured. Set PRISMA_MIGRATION_HISTORY_REPLICATED=true only after verifying _prisma_migrations is replicated to failover targets.",
+    );
+  }
+}
+
 // Security middleware
-app.use(securityHeadersMiddleware);
+app.use(
+  helmet({
+    // Enable DNS prefetch when a CDN is configured so browsers can resolve
+    // the CDN domain early, avoiding extra round-trip latency on every load.
+    // When no CDN is in use, keep it off (default) to prevent information leakage.
+    dnsPrefetchControl: { allow: !!config.cdnUrl },
+    crossOriginOpenerPolicy: { policy: "same-origin" },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+    },
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "img-src": ["'self'", "data:", "https://validator.swagger.io"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "https:"],
+      },
+    },
+  }),
+);
 app.use(corsMiddleware);
+
+// Block GraphQL attempts early in the middleware chain
+app.use(blockGraphQLQueries);
 
 // Compress all JSON/text responses to reduce bandwidth on large payloads
 app.use(compression());
@@ -84,24 +176,29 @@ function validateWebhookContentType(req: Request, _res: Response, next: NextFunc
   next();
 }
 
-// Webhooks need raw body for signature verification; mount before json()
+// Webhooks need raw body for signature verification; mount before the generic JSON parser.
 app.use(
   `/${config.apiVersion}/webhooks`,
   validateWebhookContentType,
-  express.raw({ inflate: true, limit: MAX_REQUEST_BODY_SIZE, type: "application/json" }),
-  (req: express.Request, res: express.Response, next) => {
-    const raw = req.body as Buffer;
-    (req as unknown as { rawBody: Buffer }).rawBody = raw;
-    try {
-      (req as unknown as { body: unknown }).body = JSON.parse(raw.toString());
-    } catch {
-      throw new AppError("Invalid JSON payload", 400, ErrorCodes.INVALID_JSON);
-    }
-    next();
-  },
+  express.json({
+    inflate: true,
+    limit: MAX_REQUEST_BODY_SIZE,
+    type: "application/json",
+    verify: (req: express.Request, _res: express.Response, buf: Buffer) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    },
+  }),
   webhookRoutes,
 );
-app.use(express.json({ inflate: true, limit: MAX_REQUEST_BODY_SIZE }));
+app.use(
+  express.json({
+    inflate: true,
+    limit: MAX_REQUEST_BODY_SIZE,
+    verify: (req: express.Request, _res: express.Response, buf: Buffer) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    },
+  }),
+);
 
 app.use(
   (
@@ -133,17 +230,44 @@ app.use(
 );
 
 // Logging
+app.use(correlationMiddleware);
 app.use(requestLogger);
+app.use(requestMetricsMiddleware);
 
 // Rate limiting
 app.use(standardRateLimiter);
 
+// Block known scanners, credential-stuffing tools, and headless abuse scripts
+app.use(userAgentFilter);
+
 // API Documentation — disabled in production to prevent endpoint enumeration (#274)
 if (config.nodeEnv !== "production") {
-  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  // Serve swagger-ui static assets with express.static so conditional
+  // requests are handled (ETag / Last-Modified). Set a short max-age to
+  // allow browsers to cache assets while still respecting conditional GETs.
+  // The HTML page is generated by swaggerUi.setup which references these
+  // static assets under the same prefix.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const swaggerDistPath = require("swagger-ui-dist").getAbsoluteFSPath();
+  app.use(
+    "/api-docs",
+    express.static(swaggerDistPath, {
+      maxAge: "1d",
+      etag: true,
+      lastModified: true,
+    }),
+  );
+
+  app.get("/api-docs", swaggerUi.setup(swaggerSpec));
+
   // Raw JSON spec for tooling / CI spec-drift checks (#292)
   app.get("/api-docs.json", (_req, res) => {
     res.json(swaggerSpec);
+  });
+} else {
+  // In production, redirect GraphQL-like paths to 404 explicitly
+  app.use(["/graphql", "/graphiql", "/playground", "/graphql/playground"], (req, res) => {
+    res.status(404).json({ error: { code: "NOT_FOUND", message: "Not found" } });
   });
 }
 
@@ -156,6 +280,8 @@ app.use(errorHandler);
 // Initialize connections and start server
 async function startServer() {
   try {
+    assertPrismaMigrationHistoryReplicated();
+
     // Ensures schema is in sync before accepting traffic; prevents "table does not exist" on new columns.
     logger.info("Applying Prisma migrations...");
     execSync("npx prisma migrate deploy", { stdio: "inherit" });
@@ -170,6 +296,10 @@ async function startServer() {
       try {
         await connectMongoDB();
         logger.info("MongoDB connected");
+        const { ensureIdempotencyIndex } = await import("./services/idempotency/idempotencyStore");
+        await ensureIdempotencyIndex();
+        const { ensureJobLockIndex } = await import("./utils/jobLock");
+        await ensureJobLockIndex();
       } catch (mongoError) {
         logger.warn(
           "MongoDB unavailable, continuing without cache. Set MONGODB_URI and ensure network access for cache.",
@@ -278,6 +408,10 @@ async function startServer() {
     // Mark application as ready for health checks
     const { markStartupComplete } = await import("./services/health/healthService");
     markStartupComplete();
+
+    // #436: Start heap usage monitor — logs warnings/errors and writes heap snapshots on leak detection.
+    const memoryMonitorHandle = startMemoryMonitor();
+    setMemoryMonitorHandle(memoryMonitorHandle);
 
     // Start HTTP server
     const server = app.listen(config.port, () => {

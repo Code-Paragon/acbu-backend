@@ -14,6 +14,7 @@ import { stellarClient } from "../stellar/client";
 import { getBaseFee } from "../stellar/feeManager";
 import { resolveRecipientToStellarAddress } from "../recipient/recipientResolver";
 import crypto from "crypto";
+import { reserveWalletVersion } from "../wallet/walletStateService";
 
 import { logger, logFinancialEvent } from "../../config/logger";
 import type {
@@ -105,6 +106,8 @@ export async function createTransfer(
       };
     }
   }
+
+  await reserveWalletVersion(senderUserId, options?.ifMatch);
 
   const recipientAddress = await resolveRecipientToStellarAddress(
     to,

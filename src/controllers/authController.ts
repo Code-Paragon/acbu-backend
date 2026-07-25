@@ -26,7 +26,7 @@ export const signinSchema = z.object({
 
 export const signupSchema = z.object({
   username: z.string().min(1, "username is required").max(64),
-  passcode: z.string().min(4, "passcode must be at least 4 characters").max(64),
+  passcode: z.string().min(8, "passcode must be at least 8 characters").max(64),
 });
 
 export const verify2faSchema = z.object({
@@ -177,7 +177,7 @@ export async function postSignout(
       where: { id: keyId },
       data: { revokedAt: new Date() },
     });
-    res.status(200).json({ ok: true });
+    res.status(204).send();
   } catch (e) {
     next(e);
   }

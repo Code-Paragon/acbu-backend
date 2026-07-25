@@ -5,6 +5,8 @@ import { createTransfer } from "../transfer/transferService";
 import { logger, logFinancialEvent } from "../../config/logger";
 import { CreateSalaryBatchParams, CreateSalaryBatchResult } from "./types";
 import { AppError } from "../../middleware/errorHandler";
+import { getInitialDailyMidnight, getNextDailyMidnight } from "../../utils/dateUtils";
+import { retryWithBackoff } from "../../utils/retry";
 import crypto from "crypto";
 
 /**
@@ -13,14 +15,7 @@ import crypto from "crypto";
 export async function createSalaryBatch(
   params: CreateSalaryBatchParams,
 ): Promise<CreateSalaryBatchResult> {
-  const {
-    organizationId,
-    userId,
-    totalAmount,
-    currency,
-    idempotencyKey,
-    items,
-  } = params;
+  const { organizationId, userId, totalAmount, currency, idempotencyKey, items } = params;
 
   // Idempotency check
   if (idempotencyKey) {
@@ -88,14 +83,24 @@ export async function createSalaryBatch(
   });
 
   // Trigger asynchronous processing
-  setImmediate(() =>
-    processSalaryBatch(batch.id).catch((err) => {
-      logger.error("Salary batch background processing failed", {
+  setImmediate(() => {
+    void retryWithBackoff(() => processSalaryBatch(batch.id), {
+      attempts: 3,
+      initialDelayMs: 250,
+      onRetry: (error, attempt, delayMs) =>
+        logger.warn("Retrying salary batch processing", {
+          batchId: batch.id,
+          attempt,
+          delayMs,
+          error,
+        }),
+    }).catch((err) => {
+      logger.error("Salary batch background processing failed after retries", {
         batchId: batch.id,
         error: err,
       });
-    }),
-  );
+    });
+  });
 
   return { batchId: batch.id, status: batch.status };
 }
@@ -126,7 +131,9 @@ export async function processSalaryBatch(batchId: string): Promise<void> {
   });
 
   const BATCH_CONCURRENCY = 10;
-  const pending: SalaryItem[] = (batch.items as SalaryItem[]).filter((item) => item.status !== "completed");
+  const pending: SalaryItem[] = (batch.items as SalaryItem[]).filter(
+    (item) => item.status !== "completed",
+  );
 
   let successCount = (batch.items as SalaryItem[]).filter((i) => i.status === "completed").length;
   let failCount = 0;
@@ -146,8 +153,7 @@ export async function processSalaryBatch(batchId: string): Promise<void> {
           data: {
             status: result.status,
             transactionId: result.transactionId,
-            errorMessage:
-              result.status === "failed" ? "Transfer payment failed" : null,
+            errorMessage: result.status === "failed" ? "Transfer payment failed" : null,
           },
         });
         return result.status;
@@ -189,11 +195,7 @@ export async function processSalaryBatch(batchId: string): Promise<void> {
 
   const allSucceeded = failCount === 0 && successCount === batch.items.length;
   const anySucceeded = successCount > 0;
-  const finalStatus = allSucceeded
-    ? "completed"
-    : anySucceeded
-      ? "partially_completed"
-      : "failed";
+  const finalStatus = allSucceeded ? "completed" : anySucceeded ? "partially_completed" : "failed";
 
   await prisma.salaryBatch.update({
     where: { id: batchId },
@@ -236,10 +238,9 @@ export async function getSalaryBatches(params: {
 
   return prisma.salaryBatch.findMany({
     where: {
-      OR: [
-        organizationId ? { organizationId } : {},
-        userId ? { userId } : {},
-      ].filter((o) => Object.keys(o).length > 0),
+      OR: [organizationId ? { organizationId } : {}, userId ? { userId } : {}].filter(
+        (o) => Object.keys(o).length > 0,
+      ),
     },
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -288,14 +289,11 @@ export async function triggerSchedule(scheduleId: string): Promise<void> {
     })),
   });
 
-  // Calculate next run (crude implementation)
-  const nextRun = new Date();
-  if (schedule.cron === "0 0 * * *") {
-    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
-    nextRun.setUTCHours(0, 0, 0, 0);
-  } else {
-    nextRun.setUTCMinutes(nextRun.getUTCMinutes() + 1); // Default to 1 min for testing
-  }
+  // Calculate next run using business timezone midnight (#408)
+  const nextRun =
+    schedule.cron === "0 0 * * *"
+      ? getNextDailyMidnight(new Date())
+      : new Date(Date.now() + 60_000);
 
   await prisma.salarySchedule.update({
     where: { id: scheduleId },
@@ -317,28 +315,15 @@ export async function createSalarySchedule(params: {
   amountConfig: any;
   currency?: string;
 }) {
-  const {
-    organizationId,
-    userId,
-    name,
-    cron,
-    amountConfig,
-    currency = "ACBU",
-  } = params;
+  const { organizationId, userId, name, cron, amountConfig, currency = "ACBU" } = params;
 
   // Simple validation for cron
   if (!cron || cron.split(" ").length < 5) {
     throw new AppError("Invalid cron expression", 400);
   }
 
-  // Set initial nextRunAt
-  const nextRun = new Date();
-  if (cron === "0 0 * * *") {
-    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
-    nextRun.setUTCHours(0, 0, 0, 0);
-  } else {
-    nextRun.setUTCMinutes(nextRun.getUTCMinutes() + 1);
-  }
+  const nextRun =
+    cron === "0 0 * * *" ? getInitialDailyMidnight(new Date()) : new Date(Date.now() + 60_000);
 
   const schedule = await prisma.salarySchedule.create({
     data: {
@@ -365,18 +350,14 @@ export async function createSalarySchedule(params: {
 /**
  * Lists salary schedules for an organization or user.
  */
-export async function getSalarySchedules(params: {
-  organizationId?: string;
-  userId?: string;
-}) {
+export async function getSalarySchedules(params: { organizationId?: string; userId?: string }) {
   const { organizationId, userId } = params;
 
   return prisma.salarySchedule.findMany({
     where: {
-      OR: [
-        organizationId ? { organizationId } : {},
-        userId ? { userId } : {},
-      ].filter((o) => Object.keys(o).length > 0),
+      OR: [organizationId ? { organizationId } : {}, userId ? { userId } : {}].filter(
+        (o) => Object.keys(o).length > 0,
+      ),
     },
     orderBy: { createdAt: "desc" },
   });

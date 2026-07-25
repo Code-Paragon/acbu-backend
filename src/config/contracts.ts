@@ -58,15 +58,10 @@ export const getContractAddresses = (): ContractAddresses => {
 };
 
 /**
- * Contract addresses configuration
- */
-export const contractAddresses = getContractAddresses();
-
-/**
  * Validate that all contract addresses are set
  */
 export const validateContractAddresses = (): void => {
-  const addresses = contractAddresses;
+  const addresses = getContractAddresses();
   const missing: string[] = [];
 
   if (!addresses.oracle) missing.push("oracle");

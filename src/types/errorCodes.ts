@@ -19,4 +19,4 @@ export enum ErrorCodes {
   INTERNAL_ERROR = "INTERNAL_ERROR",
 }
 
-export type ErrorCode = keyof typeof ErrorCodes | string;
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

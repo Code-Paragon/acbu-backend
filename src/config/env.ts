@@ -1,8 +1,24 @@
 import dotenv from "dotenv";
+import path from "path";
 import { z } from "zod";
 import { parseCorsOrigins } from "./corsOrigins";
 
-dotenv.config();
+// Load dotenv files in proper order, avoiding .env.local in test environments
+const nodeEnv = process.env.NODE_ENV || "development";
+const isTest = nodeEnv === "test";
+
+// Files to load, in order (later files override earlier ones)
+const envFiles = [
+  ".env",
+  ...(isTest ? [] : [".env.local"]),
+  `.env.${nodeEnv}`,
+  ...(isTest ? [] : [`.env.${nodeEnv}.local`]),
+];
+
+envFiles.forEach((file) => {
+  const filePath = path.resolve(process.cwd(), file);
+  dotenv.config({ path: filePath, override: false });
+});
 
 const envSchema = z.object({
   NODE_ENV: z.string().default("development"),
@@ -12,8 +28,8 @@ const envSchema = z.object({
   DATABASE_URL_REPLICA: z.string().optional(),
   MONGODB_URI: z.string().min(1),
   RABBITMQ_URL: z.string().min(1),
-  JWT_SECRET: z.string().min(1),
-  CHALLENGE_TOKEN_SECRET: z.string().optional(),
+  JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
+  CHALLENGE_TOKEN_SECRET: z.string().min(32).optional(),
   PRISMA_ACCELERATE_URL: z.string().optional(),
   JWT_EXPIRES_IN: z.string().default("7d"),
   JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().int().nonnegative().default(30),
@@ -21,10 +37,21 @@ const envSchema = z.object({
   ADMIN_API_KEY: z.string().optional(),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
-  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
   AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_FALLBACK_MAX_REQUESTS: z.coerce.number().int().positive().default(20),
+  RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(5),
+  RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().positive().default(60000),
   MAX_SIGNIN_ATTEMPTS: z.coerce.number().int().positive().default(5),
-  SIGNIN_LOCKOUT_DURATION_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  SIGNIN_LOCKOUT_DURATION_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
   PII_ENCRYPTION_KEY: z
     .string()
     .length(64, "PII_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)")
@@ -39,6 +66,8 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]))
     .default("info"),
+  LOG_LEVEL_CONSOLE: z.string().optional(),
+  LOG_LEVEL_FILE: z.string().optional(),
   BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
   USDC_ISSUER_TESTNET: z.string().trim().min(1),
   USDC_ISSUER_MAINNET: z.string().trim().min(1),
@@ -78,6 +107,16 @@ const envSchema = z.object({
   MEMORY_LEAK_THRESHOLD_PCT: z.coerce.number().int().min(50).max(99).default(85),
   MEMORY_CHECK_INTERVAL_MS: z.coerce.number().int().min(1000).default(30000),
   HEAP_DUMP_DIR: z.string().default("./heapdumps"),
+
+  // #383: Prisma migration history must survive replica promotion.
+  // Set to "true" only after verifying that `_prisma_migrations` is included in
+  // the database replication/failover strategy. Otherwise `migrate deploy` can
+  // re-apply migrations or fail after a read replica is promoted.
+  PRISMA_MIGRATION_HISTORY_REPLICATED: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -91,6 +130,31 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL)
   throw new Error("Missing required environment variable: PRISMA_ACCELERATE_URL");
 }
 
+// #630: JWT_SECRET must not be the documented .env.example placeholder in production.
+const JWT_SECRET_EXAMPLE_VALUES = ["dev-jwt-secret-change-me", "change-me-in-production"];
+if (
+  parsed.data.NODE_ENV === "production" &&
+  JWT_SECRET_EXAMPLE_VALUES.includes(parsed.data.JWT_SECRET)
+) {
+  throw new Error(
+    "JWT_SECRET is set to a documented example/placeholder value — generate a unique secret before deploying to production.",
+  );
+}
+
+// #632: CHALLENGE_TOKEN_SECRET must be explicit in production so a leaked
+// JWT_SECRET does not also compromise the 2FA challenge-token trust boundary.
+if (parsed.data.NODE_ENV === "production" && !parsed.data.CHALLENGE_TOKEN_SECRET) {
+  throw new Error(
+    "Missing required environment variable: CHALLENGE_TOKEN_SECRET (must be set explicitly in production, distinct from JWT_SECRET)",
+  );
+}
+
+const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "change-me-in-production";
+
+if (parsed.data.NODE_ENV === "production" && s3ScanWebhookSecret === "change-me-in-production") {
+  throw new Error("Missing required environment variable: S3_SCAN_WEBHOOK_SECRET");
+}
+
 // #382: Fintech partner keys must never be absent in production — an empty
 // Authorization header would be silently accepted by axios and only fail at
 // the first live API call, making the error hard to trace.  Fail at boot
@@ -98,8 +162,10 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL)
 if (parsed.data.NODE_ENV === "production") {
   const missingFintechKeys: string[] = [];
   if (!process.env.FLUTTERWAVE_SECRET_KEY) missingFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
-  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET) missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
+  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET)
+    missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
   if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
+  if (!process.env.BILLS_WEBHOOK_SECRET) missingFintechKeys.push("BILLS_WEBHOOK_SECRET");
   if (missingFintechKeys.length > 0) {
     throw new Error(
       `Missing required fintech API keys in production: ${missingFintechKeys.join(", ")}. ` +
@@ -134,19 +200,13 @@ export const config = {
   signinLockoutDurationMs: env.SIGNIN_LOCKOUT_DURATION_MS,
 
   // Rate Limiting Fallback (during cache outages)
-  rateLimitFallbackMaxRequests: parseInt(process.env.RATE_LIMIT_FALLBACK_MAX_REQUESTS || "20", 10),
-  rateLimitCircuitBreakerThreshold: parseInt(
-    process.env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD || "5",
-    10,
-  ),
-  rateLimitCircuitBreakerCooldownMs: parseInt(
-    process.env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS || "60000",
-    10,
-  ),
+  rateLimitFallbackMaxRequests: env.RATE_LIMIT_FALLBACK_MAX_REQUESTS,
+  rateLimitCircuitBreakerThreshold: env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD,
+  rateLimitCircuitBreakerCooldownMs: env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS,
 
   // Redis cache (Sentinel / standalone)
   redis: {
-    url: process.env.REDIS_URL || "",
+    url: process.env.REDIS_URL?.trim() || undefined,
     sentinels: (() => {
       const raw = process.env.REDIS_SENTINELS || "";
       if (!raw) return [];
@@ -164,28 +224,19 @@ export const config = {
     })(),
     sentinelName: process.env.REDIS_SENTINEL_NAME || "",
     password: process.env.REDIS_PASSWORD || "",
-    maxRetriesPerRequest: parseInt(
-      process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3",
-      10,
-    ),
-    readonlyRetryAttempts: parseInt(
-      process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3",
-      10,
-    ),
-    readonlyRetryDelayMs: parseInt(
-      process.env.REDIS_READONLY_RETRY_DELAY_MS || "100",
-      10,
-    ),
+    maxRetriesPerRequest: parseInt(process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3", 10),
+    readonlyRetryAttempts: parseInt(process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3", 10),
+    readonlyRetryDelayMs: parseInt(process.env.REDIS_READONLY_RETRY_DELAY_MS || "100", 10),
   },
 
   // Logging
   logLevel: env.LOG_LEVEL,
   // Per-transport levels keep debug noise out of production aggregators (#398).
   logConsoleLevel:
-    env.LOG_LEVEL_CONSOLE ??
+    process.env.LOG_LEVEL_CONSOLE ??
     (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFileLevel:
-    env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+    process.env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFile: process.env.LOG_FILE || "logs/app.log",
 
   // Business calendar timezone for salary runs and withdrawal windows (#408)
@@ -203,6 +254,10 @@ export const config = {
     secretKey: process.env.PAYSTACK_SECRET_KEY || "",
     baseUrl: process.env.PAYSTACK_BASE_URL || "https://api.paystack.co",
   },
+  // BE-001: HMAC secret for /v1/webhooks/bills/:provider signature verification.
+  bills: {
+    webhookSecret: process.env.BILLS_WEBHOOK_SECRET || "",
+  },
   mtnMomo: {
     subscriptionKey: process.env.MTN_MOMO_SUBSCRIPTION_KEY || "",
     apiUserId: process.env.MTN_MOMO_API_USER_ID || "",
@@ -217,13 +272,13 @@ export const config = {
   },
   s3: {
     region: process.env.AWS_REGION || process.env.S3_REGION || "us-east-1",
-    bucket: process.env.S3_BUCKET || "",
+    bucket: process.env.S3_BUCKET?.trim() || undefined,
     endpoint: process.env.S3_ENDPOINT || "",
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || "",
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || "",
     uploadUrlTtlSeconds: parseInt(process.env.S3_UPLOAD_URL_TTL_SECONDS || "900", 10),
     downloadUrlTtlSeconds: parseInt(process.env.S3_DOWNLOAD_URL_TTL_SECONDS || "300", 10),
-    scanWebhookSecret: process.env.S3_SCAN_WEBHOOK_SECRET || "",
+    scanWebhookSecret: s3ScanWebhookSecret,
   },
   fintech: {
     currencyProviders: ((): Record<string, string> => {
@@ -476,6 +531,11 @@ export const config = {
   walBackup: {
     configured: env.PG_WAL_BACKUP_CONFIGURED === "true",
     provider: env.PG_WAL_BACKUP_PROVIDER || "",
+  },
+
+  // #383: Migration table replication / promotion safety.
+  prismaMigrationHistory: {
+    replicated: env.PRISMA_MIGRATION_HISTORY_REPLICATED === "true",
   },
 
   // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)

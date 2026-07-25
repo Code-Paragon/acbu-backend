@@ -37,6 +37,7 @@ coverage/
 Thumbs.db
 
 # Temporary files
+scratch/
 tmp/
 temp/
 .idea

@@ -278,10 +278,10 @@ export async function signup(params: SignupParams): Promise<SignupResult> {
   }
   if (
     !params.passcode ||
-    params.passcode.length < 4 ||
+    params.passcode.length < 8 ||
     params.passcode.length > 64
   ) {
-    throw new Error("Passcode must be 4–64 characters");
+    throw new Error("Passcode must be 8–64 characters");
   }
   const existing = await prisma.user.findFirst({
     where: { username },

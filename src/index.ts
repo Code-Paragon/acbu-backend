@@ -1,4 +1,5 @@
-import "dotenv/config";
+// Load environment variables first (handles dotenv loading with proper order)
+import "./config/env";
 
 import { initTracing } from "./config/tracing";
 initTracing();
@@ -118,6 +119,17 @@ function blockGraphQLQueries(req: Request, _res: Response, next: NextFunction): 
   }
 
   next();
+}
+
+function assertPrismaMigrationHistoryReplicated(): void {
+  if (
+    config.nodeEnv === "production" &&
+    !config.prismaMigrationHistory.replicated
+  ) {
+    throw new Error(
+      "Prisma migration history replication is not configured. Set PRISMA_MIGRATION_HISTORY_REPLICATED=true only after verifying _prisma_migrations is replicated to failover targets.",
+    );
+  }
 }
 
 // Security middleware
@@ -268,6 +280,8 @@ app.use(errorHandler);
 // Initialize connections and start server
 async function startServer() {
   try {
+    assertPrismaMigrationHistoryReplicated();
+
     // Ensures schema is in sync before accepting traffic; prevents "table does not exist" on new columns.
     logger.info("Applying Prisma migrations...");
     execSync("npx prisma migrate deploy", { stdio: "inherit" });

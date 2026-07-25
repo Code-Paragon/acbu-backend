@@ -2,6 +2,7 @@ import { prisma } from "../config/database";
 import { triggerSchedule } from "../services/salary/salaryService";
 import { logger } from "../config/logger";
 import { acquireJobLock, releaseJobLock } from "../utils/jobLock";
+import { retryWithBackoff } from "../utils/retry";
 
 const JOB_NAME = "salary-schedule";
 const LOCK_TTL_S = 55; // hold for up to 55s (< 60s interval)
@@ -40,10 +41,20 @@ async function _processSalarySchedules(): Promise<void> {
 
   for (const schedule of dueSchedules) {
     try {
-      await triggerSchedule(schedule.id);
+      await retryWithBackoff(() => triggerSchedule(schedule.id), {
+        attempts: 3,
+        initialDelayMs: 250,
+        onRetry: (error, attempt, delayMs) =>
+          logger.warn("Retrying salary schedule trigger", {
+            scheduleId: schedule.id,
+            attempt,
+            delayMs,
+            error,
+          }),
+      });
       logger.info("Triggered salary schedule", { scheduleId: schedule.id });
     } catch (err) {
-      logger.error("Failed to trigger salary schedule", {
+      logger.error("Failed to trigger salary schedule after retries", {
         scheduleId: schedule.id,
         error: err,
       });

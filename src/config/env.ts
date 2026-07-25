@@ -409,6 +409,9 @@ export const config = {
     minRatio: parseFloat(process.env.RESERVE_MIN_RATIO || "1.02"),
     targetRatio: parseFloat(process.env.RESERVE_TARGET_RATIO || "1.05"),
     alertThreshold: parseFloat(process.env.RESERVE_ALERT_THRESHOLD || "1.02"),
+    // #627: Percentage drift threshold above which a currency is considered over/underweight
+    // and triggers rebalancing instructions. Default 1 (1%). Set via RESERVE_DRIFT_THRESHOLD_PCT.
+    driftThresholdPct: parseFloat(process.env.RESERVE_DRIFT_THRESHOLD_PCT || "1"),
   },
 
   // Notifications (email / SMS)

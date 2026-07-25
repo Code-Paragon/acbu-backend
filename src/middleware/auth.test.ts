@@ -1,6 +1,6 @@
 import { validateApiKey, generateApiKey, hashApiKey } from "./auth";
 import { prisma } from "../config/database";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { AppError } from "./errorHandler";
 import type { AuthRequest } from "./auth";
@@ -25,7 +25,7 @@ jest.mock("../config/logger", () => ({
   },
 }));
 
-jest.mock("bcryptjs", () => ({
+jest.mock("bcrypt", () => ({
   compare: jest.fn(),
   hash: jest.fn(),
 }));

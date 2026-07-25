@@ -1,7 +1,7 @@
 import { Response, NextFunction } from "express";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { AuthRequest } from "../middleware/auth";
 import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";

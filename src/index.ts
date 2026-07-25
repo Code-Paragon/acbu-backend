@@ -399,11 +399,10 @@ async function startServer() {
       const { startLendingPoolEventListener } =
         await import("./jobs/acbu_lending_pool_event_listener");
       await startLendingPoolEventListener();
-      const { startEscrowEventListener } = await import("./jobs/acbu_escrow_event_listener");
-      await startEscrowEventListener();
+      // Start Stellar event listener (runs in background; depends on RabbitMQ for event dispatch)
+      const { eventListener } = await import("./services/stellar/eventListener");
+      void eventListener.start();
     }
-    const { eventListener } = await import("./services/stellar/eventListener");
-    void eventListener.start();
 
     // Mark application as ready for health checks
     const { markStartupComplete } = await import("./services/health/healthService");

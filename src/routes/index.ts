@@ -34,7 +34,6 @@ import complianceRoutes from "./complianceRoutes";
 import kycRoutes from "./kycRoutes";
 import weightDriftAuditRoutes from "./weightDriftAuditRoutes";
 import reportRoutes from "./reportRoutes";
-import kycValidatorRewardRoutes from "./kycValidatorRewardRoutes";
 
 const router: ReturnType<typeof Router> = Router({ caseSensitive: true });
 
@@ -108,7 +107,6 @@ router.use("/investment", investmentRoutes);
 router.use("/fiat", fiatRoutes);
 router.use("/config", configRoutes);
 router.use("/kyc", kycRoutes);
-router.use("/kyc", kycValidatorRewardRoutes);
 router.use("/reports", reportRoutes);
 router.use("/webhooks", webhookRoutes);
 router.use("/compliance", complianceRoutes);

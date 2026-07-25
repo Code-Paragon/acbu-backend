@@ -4,15 +4,11 @@ import path from "path";
 import fs from "fs";
 import { config } from "./env";
 import { FinancialLogPayload, FinancialEventEnvironment } from "../types/logging";
+import { redactFormat, redactPii } from "./logRedaction";
 
-export type LogLevel =
-  | "error"
-  | "warn"
-  | "info"
-  | "http"
-  | "verbose"
-  | "debug"
-  | "silly";
+export { redactFormat, redactLogValue, redactPii } from "./logRedaction";
+
+export type LogLevel = "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly";
 
 export function resolveTransportLogLevels(options: {
   nodeEnv: string;
@@ -164,11 +160,18 @@ export const logger = winston.createLogger({
   ],
 });
 
-// ── Structured Financial Logging ─────────────────────────────────────────────
+// Structured Financial Logging
 
 const REQUIRED_FIELDS: (keyof FinancialLogPayload)[] = [
-  "event", "amount", "currency", "userId", "accountId",
-  "idempotencyKey", "transactionId", "status", "correlationId",
+  "event",
+  "amount",
+  "currency",
+  "userId",
+  "accountId",
+  "idempotencyKey",
+  "transactionId",
+  "status",
+  "correlationId",
 ];
 
 export function logFinancialEvent(payload: Omit<FinancialLogPayload, "timestamp" | "environment"> & Partial<Pick<FinancialLogPayload, "timestamp" | "environment">>): void {

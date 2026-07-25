@@ -272,7 +272,7 @@ if (config.nodeEnv !== "production") {
 }
 
 // Routes
-app.use(`/api/${config.apiVersion}`, routes);
+app.use([`/api/${config.apiVersion}`, "/api"], routes);
 
 // Error handling (must be last)
 app.use(errorHandler);

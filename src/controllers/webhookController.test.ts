@@ -128,8 +128,10 @@ import {
   verifyPaystackSignature,
   handleFlutterwaveWebhook,
   handlePaystackWebhook,
+  handleBillsWebhook,
 } from "./webhookController";
 import { prisma } from "../config/database";
+import { reconcileBillsWebhook } from "../services/bills";
 
 type RawRequest = Request & { rawBody?: Buffer };
 
@@ -498,6 +500,132 @@ describe("webhookController", () => {
       const next = makeNext();
       await handleFlutterwaveWebhook({ headers: {}, body: {} } as Request, makeRes(), next);
       expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
+  // ── handleBillsWebhook ─────────────────────────────────────────────────────
+
+  describe("handleBillsWebhook", () => {
+    const validTimestamp = () => String(Math.floor(Date.now() / 1000));
+    const expiredTimestamp = () => String(Math.floor(Date.now() / 1000) - 600);
+    const futureTimestamp = () => String(Math.floor(Date.now() / 1000) + 600);
+
+    const validBody = {
+      transaction_id: "tx-1",
+      provider_reference: "ref-1",
+      status: "completed",
+      amount: 100,
+      currency: "NGN",
+    };
+
+    it("returns 401 when x-bills-timestamp header is absent", async () => {
+      const res = makeRes();
+      const next = makeNext();
+      await handleBillsWebhook(
+        {
+          headers: {},
+          params: { provider: "simulated" },
+          body: validBody,
+        } as unknown as Request,
+        res,
+        next,
+      );
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+      expect(reconcileBillsWebhook).not.toHaveBeenCalled();
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("returns 401 when x-bills-timestamp is expired (>5 min old)", async () => {
+      const res = makeRes();
+      const next = makeNext();
+      await handleBillsWebhook(
+        {
+          headers: { "x-bills-timestamp": expiredTimestamp() },
+          params: { provider: "simulated" },
+          body: validBody,
+        } as unknown as Request,
+        res,
+        next,
+      );
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+      expect(reconcileBillsWebhook).not.toHaveBeenCalled();
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("returns 401 when x-bills-timestamp is too far in the future (>5 min)", async () => {
+      const res = makeRes();
+      const next = makeNext();
+      await handleBillsWebhook(
+        {
+          headers: { "x-bills-timestamp": futureTimestamp() },
+          params: { provider: "simulated" },
+          body: validBody,
+        } as unknown as Request,
+        res,
+        next,
+      );
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+      expect(reconcileBillsWebhook).not.toHaveBeenCalled();
+    });
+
+    it("returns 401 when x-bills-timestamp is not a valid number or date", async () => {
+      const res = makeRes();
+      await handleBillsWebhook(
+        {
+          headers: { "x-bills-timestamp": "not-a-date" },
+          params: { provider: "simulated" },
+          body: validBody,
+        } as unknown as Request,
+        res,
+        makeNext(),
+      );
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Webhook timestamp invalid or expired" }),
+      );
+      expect(reconcileBillsWebhook).not.toHaveBeenCalled();
+    });
+
+    it("reconciles and returns 200 when x-bills-timestamp is within tolerance", async () => {
+      (reconcileBillsWebhook as jest.Mock).mockResolvedValue({
+        transactionId: "tx-1",
+        status: "completed",
+      });
+      const res = makeRes();
+      await handleBillsWebhook(
+        {
+          headers: { "x-bills-timestamp": validTimestamp() },
+          params: { provider: "simulated" },
+          body: validBody,
+        } as unknown as Request,
+        res,
+        makeNext(),
+      );
+      expect(reconcileBillsWebhook).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "simulated",
+          transactionId: "tx-1",
+          providerReference: "ref-1",
+          status: "completed",
+          amount: 100,
+          currency: "NGN",
+        }),
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        ok: true,
+        transaction_id: "tx-1",
+        status: "completed",
+      });
     });
   });
 });

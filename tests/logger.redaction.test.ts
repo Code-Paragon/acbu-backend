@@ -1,4 +1,4 @@
-import { redactLogValue, redactFormat } from "../src/config/logRedaction";
+import { redactLogValue, redactFormat } from "../src/config/logger";
 import winston from "winston";
 import { Writable } from "stream";
 

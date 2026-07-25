@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Response, NextFunction } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import * as StellarSdk from "@stellar/stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import { AuthRequest } from "../middleware/auth";
 import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";
@@ -221,7 +221,7 @@ export async function postWalletConfirm(
       throw new AppError("Wallet already confirmed", 400);
     if (!user.stellarAddress) throw new AppError("No wallet to confirm", 400);
     try {
-      const kp = StellarSdk.Keypair.fromSecret(body.passphrase);
+      const kp = Keypair.fromSecret(body.passphrase);
       if (kp.publicKey() !== user.stellarAddress)
         throw new AppError("Passphrase does not match wallet", 400);
     } catch {

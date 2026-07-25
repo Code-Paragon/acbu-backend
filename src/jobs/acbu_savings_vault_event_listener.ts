@@ -5,7 +5,7 @@ import {
   eventListener,
   ContractEvent,
 } from "../services/stellar/eventListener";
-import { contractAddresses } from "../config/contracts";
+import { getContractAddresses } from "../config/contracts";
 import { logger } from "../config/logger";
 import { savingsVaultEventProducer } from "./producers";
 
@@ -16,7 +16,7 @@ const SAVINGS_VAULT_EFFECT_TYPES = [
 ];
 
 export async function startSavingsVaultEventListener(): Promise<void> {
-  const contractId = contractAddresses.savingsVault;
+  const contractId = getContractAddresses().savingsVault;
   if (!contractId) {
     logger.info(
       "Savings vault event listener skipped: no CONTRACT_SAVINGS_VAULT configured",

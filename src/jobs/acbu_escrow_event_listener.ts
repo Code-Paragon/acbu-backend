@@ -5,7 +5,7 @@ import {
   eventListener,
   ContractEvent,
 } from "../services/stellar/eventListener";
-import { contractAddresses } from "../config/contracts";
+import { getContractAddresses } from "../config/contracts";
 import { logger } from "../config/logger";
 import { escrowEventProducer } from "./producers";
 
@@ -16,7 +16,7 @@ const ESCROW_EFFECT_TYPES = [
 ];
 
 export async function startEscrowEventListener(): Promise<void> {
-  const contractId = contractAddresses.escrow;
+  const contractId = getContractAddresses().escrow;
   if (!contractId) {
     logger.info("Escrow event listener skipped: no CONTRACT_ESCROW configured");
     return;

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { acbuLendingPoolService } from "../services/contracts";
-import { contractAddresses } from "../config/contracts";
+import { getContractAddresses } from "../config/contracts";
 import type { AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 
@@ -14,7 +14,7 @@ export async function postLendingDeposit(
     if (!lender || !amount) {
       throw new AppError("lender and amount required", 400);
     }
-    if (!contractAddresses.lendingPool) {
+    if (!getContractAddresses().lendingPool) {
       throw new AppError("Lending pool contract not configured", 503);
     }
     const result = await acbuLendingPoolService.deposit({
@@ -60,7 +60,7 @@ export async function getLendingBalance(
     if (!lender) {
       throw new AppError("query lender required", 400);
     }
-    if (!contractAddresses.lendingPool) {
+    if (!getContractAddresses().lendingPool) {
       throw new AppError("Lending pool contract not configured", 503);
     }
     const balance = await acbuLendingPoolService.getBalance(lender);

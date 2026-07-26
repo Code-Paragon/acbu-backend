@@ -71,6 +71,43 @@ function validateRequestContentEncoding(req: Request, _res: Response, next: Next
   next();
 }
 
+/** GraphQL introspection field names to detect, all lowercase. */
+const GRAPHQL_INTROSPECTION_PATTERNS = ["__schema", "__type", "introspection"];
+
+/**
+ * Recursively walks a plain object (parsed JSON body or query-params) and
+ * returns true as soon as a key or string value matches one of the known
+ * GraphQL introspection patterns.  Avoids the cost of JSON.stringify on
+ * every request and is safe against circular references (#621).
+ */
+function containsGraphQLPattern(value: unknown, depth = 0): boolean {
+  // Guard against pathological nesting
+  if (depth > 10) return false;
+
+  if (typeof value === "string") {
+    const lower = value.toLowerCase();
+    return GRAPHQL_INTROSPECTION_PATTERNS.some((p) => lower.includes(p));
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => containsGraphQLPattern(item, depth + 1));
+  }
+
+  if (value !== null && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      const lowerKey = k.toLowerCase();
+      if (GRAPHQL_INTROSPECTION_PATTERNS.some((p) => lowerKey.includes(p))) {
+        return true;
+      }
+      if (containsGraphQLPattern(v, depth + 1)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 /**
  * Middleware to block GraphQL-like queries and introspection attempts
  * to prevent attackers from probing the API schema.
@@ -90,11 +127,12 @@ function blockGraphQLQueries(req: Request, _res: Response, next: NextFunction): 
     throw new AppError("Not found", 404, ErrorCodes.NOT_FOUND);
   }
 
-  // Block introspection queries in request body (JSON)
+  // Block introspection queries in request body (JSON).
+  // Uses field-by-field traversal instead of JSON.stringify to avoid the cost
+  // of serialising the entire body on every POST and to be safe against
+  // circular-reference payloads (#621).
   if (req.method === "POST" && contentType.includes("application/json") && req.body) {
-    const bodyStr = JSON.stringify(req.body).toLowerCase();
-    // Check for GraphQL introspection patterns (even if someone tries to POST to a REST endpoint)
-    if (bodyStr.includes("__schema") || bodyStr.includes("__type") || bodyStr.includes("introspection")) {
+    if (containsGraphQLPattern(req.body)) {
       logger.warn("Blocked GraphQL introspection attempt", {
         path: req.path,
         ip: req.ip,
@@ -104,11 +142,10 @@ function blockGraphQLQueries(req: Request, _res: Response, next: NextFunction): 
     }
   }
 
-  // Block query parameters with GraphQL-like patterns
+  // Block query parameters with GraphQL-like patterns.
   const query = req.query;
   if (query && typeof query === "object") {
-    const queryStr = JSON.stringify(query).toLowerCase();
-    if (queryStr.includes("__schema") || queryStr.includes("__type") || queryStr.includes("introspection")) {
+    if (containsGraphQLPattern(query)) {
       logger.warn("Blocked GraphQL introspection via query params", {
         path: req.path,
         ip: req.ip,

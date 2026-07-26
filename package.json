@@ -37,7 +37,7 @@
     "backfill:kyc-encryption": "ts-node --transpile-only scripts/backfillKycEncryption.ts",
     "stellar:create-wallet": "ts-node --transpile-only scripts/create-stellar-wallet.ts",
     "compute:basket-weights": "ts-node --transpile-only scripts/compute-basket-weights.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "node scripts/prisma-generate-if-needed.js"
   },
   "keywords": [
     "acbu",

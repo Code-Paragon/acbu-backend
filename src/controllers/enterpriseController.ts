@@ -107,7 +107,7 @@ export async function postBulkTransfer(
  * Returns a stub treasury response until treasury aggregation is implemented.
  */
 export async function getTreasury(
-  _req: Request,
+  _req: AuthRequest,
   res: Response,
   next: NextFunction,
 ): Promise<void> {

@@ -299,6 +299,8 @@ export async function connectWithRetry(): Promise<void> {
       }
       return;
     } catch (err) {
+      // #624: always capture the error so lastError reflects the most recent
+      // failure, including the final attempt that breaks out of the loop.
       lastError = err;
       if (attempt >= maxRetries) break;
 
@@ -319,6 +321,8 @@ export async function connectWithRetry(): Promise<void> {
     maxRetries,
     error: lastError instanceof Error ? lastError.message : String(lastError),
   });
+  // #624: guard against throwing undefined in the unexpected case where the loop
+  // exits without ever entering the catch block (e.g. maxRetries <= 0).
   throw lastError instanceof Error
     ? lastError
     : new Error("Database connection failed after exhausting retries");

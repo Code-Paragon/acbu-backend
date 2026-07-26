@@ -25,6 +25,7 @@ import {
 } from "../utils/decimalUtils";
 import { AppError } from "../middleware/errorHandler";
 import { getLatestAcbuRate } from "../services/rates/acbuRateCache";
+import { extractIdempotencyKey } from "../utils/idempotency";
 
 /** Best-effort stringify for Decimal-like values in Prisma models. */
 function toNullableStringDecimal(v: unknown): string | null {

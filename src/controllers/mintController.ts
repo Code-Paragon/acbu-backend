@@ -96,7 +96,6 @@ export async function mintFromUsdc(
       wallet_address,
     );
     const usdcDecimal = parseMonetaryString(usdc_amount, "usdc_amount");
-    const usdcNum = usdcDecimal.toNumber(); // Only convert at boundary for limits service
     // SECURITY: Always enforce circuit breaker and deposit limits
     // Previously these checks were skipped when req.audience was undefined,
     // allowing bypass of critical financial controls via direct /mint/usdc route
@@ -114,7 +113,7 @@ export async function mintFromUsdc(
     const audience = req.audience || "retail";
     await checkDepositLimits(
       audience,
-      usdcNum,
+      usdcDecimal,
       userId,
       req.apiKey?.organizationId ?? null,
     );
@@ -366,7 +365,7 @@ export async function depositFromBasketCurrency(
 
     await checkDepositLimits(
       audience,
-      amountUsd,
+      new Decimal(amountUsd),
       userId,
       req.apiKey?.organizationId ?? null,
     );

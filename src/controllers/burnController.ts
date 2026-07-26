@@ -128,7 +128,6 @@ export async function burnAcbu(
     }
 
     const acbuDecimal = parseMonetaryString(acbu_amount, "acbu_amount");
-    const acbuNum = acbuDecimal.toNumber(); // Only convert at boundary for existing code
     const burnFeeBps = await getBurnFeeBps(currency);
     const feeAcbuDecimal = calculateFee(acbuDecimal, burnFeeBps);
     const acbuAmount7 = decimalToContractNumber(acbuDecimal).toString();
@@ -163,7 +162,7 @@ export async function burnAcbu(
     const audience = req.audience || "retail";
     await checkWithdrawalLimits(
       audience,
-      acbuNum,
+      acbuDecimal,
       currency,
       req.apiKey?.userId ?? null,
       req.apiKey?.organizationId ?? null,
@@ -178,7 +177,7 @@ export async function burnAcbu(
           idempotencyKey,
           type: "burn",
           status: "pending",
-          acbuAmountBurned: new Decimal(acbuNum),
+          acbuAmountBurned: new Decimal(acbuDecimal),
           localCurrency: currency,
           localAmount: new Decimal(localDecimal),
           recipientAccount: recipient_account as object,

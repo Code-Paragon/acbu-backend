@@ -7,7 +7,7 @@
  */
 
 import type { IncomingMessage } from "http";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { prisma } from "../../config/database";
 import { logger } from "../../config/logger";
 import type { ApiKeyType } from "../../middleware/auth";

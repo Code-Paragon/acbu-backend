@@ -1,5 +1,5 @@
 import type { IncomingMessage } from "http";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { authenticateWsUpgrade, WsAuthError } from "./wsAuth";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────

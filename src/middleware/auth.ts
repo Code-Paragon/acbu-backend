@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/database";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { AppError } from "./errorHandler";
 import { logger } from "../config/logger";
 import { EXPECTED_JWT_TYP } from "./authMiddleware";

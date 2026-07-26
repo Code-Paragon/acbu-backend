@@ -69,6 +69,8 @@ const envSchema = z.object({
   LOG_LEVEL_CONSOLE: z.string().optional(),
   LOG_LEVEL_FILE: z.string().optional(),
   BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
+  USDC_ISSUER_TESTNET: z.string().trim().min(1),
+  USDC_ISSUER_MAINNET: z.string().trim().min(1),
   CORS_ORIGIN: z.string().optional(),
   CDN_URL: z.string().url().optional(),
 
@@ -152,7 +154,6 @@ const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "chang
 if (parsed.data.NODE_ENV === "production" && s3ScanWebhookSecret === "change-me-in-production") {
   throw new Error("Missing required environment variable: S3_SCAN_WEBHOOK_SECRET");
 }
-
 // #382: Fintech partner keys must never be absent in production — an empty
 // Authorization header would be silently accepted by axios and only fail at
 // the first live API call, making the error hard to trace.  Fail at boot
@@ -231,8 +232,7 @@ export const config = {
   logLevel: env.LOG_LEVEL,
   // Per-transport levels keep debug noise out of production aggregators (#398).
   logConsoleLevel:
-    process.env.LOG_LEVEL_CONSOLE ??
-    (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
+    process.env.LOG_LEVEL_CONSOLE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFileLevel:
     process.env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
   logFile: process.env.LOG_FILE || "logs/app.log",
@@ -369,12 +369,10 @@ export const config = {
     sorobanMaxFeeStroops: parseInt(process.env.STELLAR_SOROBAN_MAX_FEE_STROOPS || "10000000", 10),
     /** Minimum total fee per Soroban transaction in stroops to prevent underpricing. Default 5000 stroops. */
     sorobanMinFeeStroops: parseInt(process.env.STELLAR_SOROBAN_MIN_FEE_STROOPS || "5000", 10),
-    /** Circle USDC issuer on Stellar testnet. Default is the well-known Circle testnet issuer. */
-    usdcIssuerTestnet:
-      process.env.USDC_ISSUER_TESTNET ?? "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    /** Circle USDC issuer on Stellar mainnet. Default is the well-known Circle mainnet issuer. */
-    usdcIssuerMainnet:
-      process.env.USDC_ISSUER_MAINNET ?? "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    /** Circle USDC issuer on Stellar testnet, configured via the environment. */
+    usdcIssuerTestnet: env.USDC_ISSUER_TESTNET,
+    /** Circle USDC issuer on Stellar mainnet, configured via the environment. */
+    usdcIssuerMainnet: env.USDC_ISSUER_MAINNET,
     /** Stellar asset code for the USDC-like swap asset on testnet (4–12 alphanumeric). Default `USDC`. */
     usdcAssetCodeTestnet: process.env.USDC_ASSET_CODE_TESTNET || "USDC",
     /** Stellar asset code for the USDC-like swap asset on mainnet. Default `USDC`. */

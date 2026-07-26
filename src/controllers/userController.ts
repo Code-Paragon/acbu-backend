@@ -1,11 +1,12 @@
 import { Response, NextFunction } from "express";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { AuthRequest } from "../middleware/auth";
 import { prisma } from "../config/database";
 import { AppError } from "../middleware/errorHandler";
 import { logger } from "../config/logger";
+import { tombstoneDeleteUser } from "../services/user";
 
 /** Normalize username: lowercase, no spaces. */
 function normalizeUsername(s: string): string {
@@ -390,37 +391,7 @@ export async function deleteMe(req: AuthRequest, res: Response, next: NextFuncti
     const userId = req.apiKey?.userId;
     if (!userId) throw new AppError("User-scoped API key required", 401);
 
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // 1. Delete associated sensitive records
-      await tx.apiKey.deleteMany({ where: { userId } });
-      await tx.otpChallenge.deleteMany({ where: { userId } });
-      await tx.userPasskey.deleteMany({ where: { userId } });
-      await tx.userContact.deleteMany({ where: { userId } });
-      await tx.userContact.deleteMany({ where: { contactUserId: userId } });
-      await tx.guardian.deleteMany({ where: { userId } });
-      await tx.guardian.deleteMany({ where: { guardianUserId: userId } });
-
-      // 2. Tombstone the User record
-      const tombstoneSuffix = crypto.randomUUID().substring(0, 8);
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          username: `deleted_${tombstoneSuffix}`,
-          email: null,
-          phoneE164: null,
-          stellarAddress: null,
-          kycStatus: "deleted",
-          encryptedStellarSecret: null,
-          keyEncryptionHint: null,
-          passcodeHash: null,
-          twoFaMethod: null,
-          totpSecretEncrypted: null,
-          privacyHideFromSearch: true,
-        },
-      });
-    });
-
-    logger.info("Account tombstone deleted (legacy endpoint)", { userId });
+    await tombstoneDeleteUser(userId, "deleteMe");
 
     res.status(204).send();
   } catch (e) {

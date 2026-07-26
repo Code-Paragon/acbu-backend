@@ -41,7 +41,10 @@ import { StellarClient } from "./client";
 import { logger } from "../../config/logger";
 import { config } from "../../config/env";
 
-const VALID_SECRET = "SCZANGBA5YHTNYVVVVCG2XTIBQ4SKWDJXG3G5C2JKKQLOOOQ2K3X7LKP";
+// Prefer an injected secret so CI/CD can supply a non-committed value.
+// The fallback keeps existing test behaviour when the env var is absent (#611).
+const VALID_SECRET =
+  process.env.TEST_STELLAR_SECRET_KEY ?? "SCZANGBA5YHTNYVVVVCG2XTIBQ4SKWDJXG3G5C2JKKQLOOOQ2K3X7LKP";
 
 beforeEach(() => {
   jest.clearAllMocks();

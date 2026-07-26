@@ -132,7 +132,9 @@ function assertPrismaMigrationHistoryReplicated(): void {
   }
 }
 
-// Security middleware
+// Security middleware — single source of truth for all helmet/security-header config.
+// middleware/securityHeaders.ts was a duplicate export of this config that was never
+// registered; it has been deleted to prevent the pattern being reused inconsistently.
 app.use(
   helmet({
     // Enable DNS prefetch when a CDN is configured so browsers can resolve

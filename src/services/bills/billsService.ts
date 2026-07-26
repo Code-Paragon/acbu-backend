@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../../config/database";
 import { AppError } from "../../middleware/errorHandler";

@@ -684,3 +684,18 @@ model RefreshToken {
   @@index([expiresAt], map: "idx_refresh_tokens_expires_at")
   @@map("refresh_tokens")
 }
+
+model PrivacyConsent {
+  id               String   @id @default(uuid()) @db.Uuid
+  addressHash      String   @unique @map("address_hash") @db.VarChar(64)
+  analyticsOptout  Boolean  @default(false) @map("analytics_optout")
+  marketingOptout  Boolean  @default(false) @map("marketing_optout")
+  saleOptout       Boolean  @default(false) @map("sale_optout")
+  biometricConsent Boolean  @default(false) @map("biometric_consent")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@index([addressHash], map: "idx_privacy_consents_address_hash")
+  @@map("privacy_consents")
+}
+

@@ -1,6 +1,5 @@
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
 import { xdr } from "@stellar/stellar-sdk";
+import { prisma } from "../../config/database";
 import { contractClient, ContractClient } from "../stellar/contractClient";
 import { stellarClient } from "../stellar/client";
 import { logger } from "../../config/logger";

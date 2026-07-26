@@ -6,7 +6,6 @@ initTracing();
 
 import "express-async-errors";
 
-import { execSync } from "child_process";
 import express, {
   type NextFunction,
   type Request,
@@ -320,11 +319,6 @@ app.use(errorHandler);
 async function startServer() {
   try {
     assertPrismaMigrationHistoryReplicated();
-
-    // Ensures schema is in sync before accepting traffic; prevents "table does not exist" on new columns.
-    logger.info("Applying Prisma migrations...");
-    execSync("npx prisma migrate deploy", { stdio: "inherit" });
-    logger.info("Prisma migrations applied successfully");
 
     // Establish the DB connection with backoff + jitter so coordinated restarts
     // don't stampede the database's connection slots (#402).

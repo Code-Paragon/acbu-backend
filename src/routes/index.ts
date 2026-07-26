@@ -109,7 +109,6 @@ router.use("/investment", investmentRoutes);
 router.use("/fiat", fiatRoutes);
 router.use("/config", configRoutes);
 router.use("/kyc", kycRoutes);
-router.use("/kyc", kycValidatorRewardRoutes);
 router.use("/reports", reportRoutes);
 router.use("/webhooks", webhookRoutes);
 router.use("/compliance", complianceRoutes);

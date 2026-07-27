@@ -154,21 +154,72 @@ const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "chang
 if (parsed.data.NODE_ENV === "production" && s3ScanWebhookSecret === "change-me-in-production") {
   throw new Error("Missing required environment variable: S3_SCAN_WEBHOOK_SECRET");
 }
-// #382: Fintech partner keys must never be absent in production — an empty
-// Authorization header would be silently accepted by axios and only fail at
-// the first live API call, making the error hard to trace.  Fail at boot
-// instead so a misconfigured deployment is caught before it reaches traffic.
+// #600: Detect placeholder strings like 'Flutterwave secret key', 'Paystack secret key', etc.
+export function isPlaceholderKey(value?: string | null): boolean {
+  if (!value || typeof value !== "string") return true;
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+
+  const lower = trimmed.toLowerCase();
+
+  const knownPlaceholders = [
+    "flutterwave secret key",
+    "flutterwave public key",
+    "flutterwave encryption key",
+    "flutterwave webhook secret",
+    "paystack secret key",
+    "mtn momo subscription key",
+    "mtn momo api user id",
+    "mtn momo api key",
+    "bills webhook secret",
+    "change-me",
+    "change-me-in-production",
+    "your-flutterwave-secret-key",
+    "your-paystack-secret-key",
+    "your-mtn-momo-subscription-key",
+    "your-stellar-secret-key-here",
+    "your-64-char-hex-key-here",
+    "your-access-key-id",
+    "your-secret-access-key",
+  ];
+
+  if (knownPlaceholders.includes(lower)) return true;
+
+  const patterns = [
+    /^flutterwave\s+(secret|public|encryption|webhook)\s*(key|secret)?$/i,
+    /^paystack\s+(secret|public)\s*key?$/i,
+    /^mtn\s*momo\s+(subscription|api|user)\s*(key|id)?$/i,
+    /^your[-_\s]/i,
+    /[-_]key[-_]here$/i,
+    /^placeholder$/i,
+    /^change[-_]?me/i,
+  ];
+
+  return patterns.some((p) => p.test(trimmed));
+}
+
+// #382 & #600: Fintech partner keys must never be absent or set to placeholder strings in production.
 if (parsed.data.NODE_ENV === "production") {
-  const missingFintechKeys: string[] = [];
-  if (!process.env.FLUTTERWAVE_SECRET_KEY) missingFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
-  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET)
-    missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
-  if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
-  if (!process.env.BILLS_WEBHOOK_SECRET) missingFintechKeys.push("BILLS_WEBHOOK_SECRET");
-  if (missingFintechKeys.length > 0) {
+  const invalidFintechKeys: string[] = [];
+  if (!process.env.FLUTTERWAVE_SECRET_KEY || isPlaceholderKey(process.env.FLUTTERWAVE_SECRET_KEY))
+    invalidFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
+  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET || isPlaceholderKey(process.env.FLUTTERWAVE_WEBHOOK_SECRET))
+    invalidFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
+  if (!process.env.PAYSTACK_SECRET_KEY || isPlaceholderKey(process.env.PAYSTACK_SECRET_KEY))
+    invalidFintechKeys.push("PAYSTACK_SECRET_KEY");
+  if (!process.env.BILLS_WEBHOOK_SECRET || isPlaceholderKey(process.env.BILLS_WEBHOOK_SECRET))
+    invalidFintechKeys.push("BILLS_WEBHOOK_SECRET");
+  if (!process.env.MTN_MOMO_SUBSCRIPTION_KEY || isPlaceholderKey(process.env.MTN_MOMO_SUBSCRIPTION_KEY))
+    invalidFintechKeys.push("MTN_MOMO_SUBSCRIPTION_KEY");
+  if (!process.env.MTN_MOMO_API_USER_ID || isPlaceholderKey(process.env.MTN_MOMO_API_USER_ID))
+    invalidFintechKeys.push("MTN_MOMO_API_USER_ID");
+  if (!process.env.MTN_MOMO_API_KEY || isPlaceholderKey(process.env.MTN_MOMO_API_KEY))
+    invalidFintechKeys.push("MTN_MOMO_API_KEY");
+
+  if (invalidFintechKeys.length > 0) {
     throw new Error(
-      `Missing required fintech API keys in production: ${missingFintechKeys.join(", ")}. ` +
-        "Inject these via environment variables — never commit them to source control. " +
+      `Missing or placeholder required fintech API keys in production: ${invalidFintechKeys.join(", ")}. ` +
+        "Inject valid API keys via environment variables — never commit them to source control. " +
         "Rotate any key that may have been exposed before redeploying.",
     );
   }
@@ -242,24 +293,42 @@ export const config = {
 
   // Fintech APIs
   flutterwave: {
-    publicKey: process.env.FLUTTERWAVE_PUBLIC_KEY || "",
-    secretKey: process.env.FLUTTERWAVE_SECRET_KEY || "",
-    encryptionKey: process.env.FLUTTERWAVE_ENCRYPTION_KEY || "",
-    webhookSecret: process.env.FLUTTERWAVE_WEBHOOK_SECRET || "",
+    publicKey: isPlaceholderKey(process.env.FLUTTERWAVE_PUBLIC_KEY)
+      ? ""
+      : process.env.FLUTTERWAVE_PUBLIC_KEY!.trim(),
+    secretKey: isPlaceholderKey(process.env.FLUTTERWAVE_SECRET_KEY)
+      ? ""
+      : process.env.FLUTTERWAVE_SECRET_KEY!.trim(),
+    encryptionKey: isPlaceholderKey(process.env.FLUTTERWAVE_ENCRYPTION_KEY)
+      ? ""
+      : process.env.FLUTTERWAVE_ENCRYPTION_KEY!.trim(),
+    webhookSecret: isPlaceholderKey(process.env.FLUTTERWAVE_WEBHOOK_SECRET)
+      ? ""
+      : process.env.FLUTTERWAVE_WEBHOOK_SECRET!.trim(),
     baseUrl: process.env.FLUTTERWAVE_BASE_URL || "https://api.flutterwave.com/v3",
   },
   paystack: {
-    secretKey: process.env.PAYSTACK_SECRET_KEY || "",
+    secretKey: isPlaceholderKey(process.env.PAYSTACK_SECRET_KEY)
+      ? ""
+      : process.env.PAYSTACK_SECRET_KEY!.trim(),
     baseUrl: process.env.PAYSTACK_BASE_URL || "https://api.paystack.co",
   },
   // BE-001: HMAC secret for /v1/webhooks/bills/:provider signature verification.
   bills: {
-    webhookSecret: process.env.BILLS_WEBHOOK_SECRET || "",
+    webhookSecret: isPlaceholderKey(process.env.BILLS_WEBHOOK_SECRET)
+      ? ""
+      : process.env.BILLS_WEBHOOK_SECRET!.trim(),
   },
   mtnMomo: {
-    subscriptionKey: process.env.MTN_MOMO_SUBSCRIPTION_KEY || "",
-    apiUserId: process.env.MTN_MOMO_API_USER_ID || "",
-    apiKey: process.env.MTN_MOMO_API_KEY || "",
+    subscriptionKey: isPlaceholderKey(process.env.MTN_MOMO_SUBSCRIPTION_KEY)
+      ? ""
+      : process.env.MTN_MOMO_SUBSCRIPTION_KEY!.trim(),
+    apiUserId: isPlaceholderKey(process.env.MTN_MOMO_API_USER_ID)
+      ? ""
+      : process.env.MTN_MOMO_API_USER_ID!.trim(),
+    apiKey: isPlaceholderKey(process.env.MTN_MOMO_API_KEY)
+      ? ""
+      : process.env.MTN_MOMO_API_KEY!.trim(),
     baseUrl:
       process.env.MTN_MOMO_BASE_URL ||
       (process.env.MTN_MOMO_TARGET_ENVIRONMENT === "production"

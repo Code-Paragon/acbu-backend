@@ -93,11 +93,8 @@ export function verifyFlutterwaveSignature(
 
   const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
   if (!rawBody || !Buffer.isBuffer(rawBody)) {
-    throw new AppError(
-      "Raw body required for verification",
-      400,
-      ErrorCodes.RAW_BODY_REQUIRED,
-    );
+    res.status(400).json({ error: "Raw body required for verification" });
+    return;
   }
 
   // #390: Reject requests whose timestamp falls outside the tolerance window.
@@ -114,11 +111,8 @@ export function verifyFlutterwaveSignature(
 
   const received = req.headers["verif-hash"] as string | undefined;
   if (!received) {
-    throw new AppError(
-      "Missing verif-hash header",
-      401,
-      ErrorCodes.MISSING_SIGNATURE,
-    );
+    res.status(401).json({ error: "Missing verif-hash header" });
+    return;
   }
 
   const computed = crypto
@@ -145,7 +139,8 @@ export function verifyFlutterwaveSignature(
     return;
   }
   logger.warn("Flutterwave webhook signature mismatch");
-  throw new AppError("Invalid signature", 401, ErrorCodes.INVALID_SIGNATURE);
+  res.status(401).json({ error: "Invalid signature" });
+  return;
 }
 
 // ── Paystack Webhook ────────────────────────────────────────────────────────
@@ -184,11 +179,8 @@ export function verifyPaystackSignature(
 
   const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
   if (!rawBody || !Buffer.isBuffer(rawBody)) {
-    throw new AppError(
-      "Raw body required for verification",
-      400,
-      ErrorCodes.RAW_BODY_REQUIRED,
-    );
+    res.status(400).json({ error: "Raw body required for verification" });
+    return;
   }
 
   // #390: Reject requests whose timestamp falls outside the tolerance window.
@@ -205,11 +197,8 @@ export function verifyPaystackSignature(
 
   const received = req.headers["x-paystack-signature"] as string | undefined;
   if (!received) {
-    throw new AppError(
-      "Missing x-paystack-signature header",
-      401,
-      ErrorCodes.MISSING_SIGNATURE,
-    );
+    res.status(401).json({ error: "Missing x-paystack-signature header" });
+    return;
   }
 
   const computed = crypto
@@ -233,7 +222,8 @@ export function verifyPaystackSignature(
 
   if (!signatureValid) {
     logger.warn("Paystack webhook signature mismatch");
-    throw new AppError("Invalid signature", 401, ErrorCodes.INVALID_SIGNATURE);
+    res.status(401).json({ error: "Invalid signature" });
+    return;
   }
   next();
 }

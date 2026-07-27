@@ -138,78 +138,125 @@ class MongoRateLimitStore implements Store {
   }
 
   async increment(key: string): Promise<ClientRateLimitInfo> {
-    const db = getMongoDB();
-    const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + this.windowMs);
-    const namespacedKey = this.buildKey(key);
+    try {
+      const db = getMongoDB();
+      const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + this.windowMs);
+      const namespacedKey = this.buildKey(key);
 
-    const result = await collection.findOneAndUpdate(
-      { key: namespacedKey },
-      {
-        $inc: { "value.count": 1 },
-        $set: {
-          updatedAt: now,
-          expiresAt,
-          namespace: this.prefix,
+      const result = await collection.findOneAndUpdate(
+        { key: namespacedKey },
+        {
+          $inc: { "value.count": 1 },
+          $set: {
+            updatedAt: now,
+            expiresAt,
+            namespace: this.prefix,
+          },
+          $setOnInsert: {
+            key: namespacedKey,
+            namespace: this.prefix,
+            value: { count: 0 },
+          },
         },
-        $setOnInsert: {
-          key: namespacedKey,
-          namespace: this.prefix,
-          value: { count: 0 },
-        },
-      },
-      { upsert: true, returnDocument: "after" },
-    );
+        { upsert: true, returnDocument: "after" },
+      );
 
-    const doc = result?.value as unknown as RateLimitDocument | null;
-    const totalHits = doc?.value?.count ?? 1;
-    return {
-      totalHits,
-      resetTime: doc?.expiresAt ?? expiresAt,
-    };
+      const doc = result?.value as unknown as RateLimitDocument | null;
+      const totalHits = doc?.value?.count ?? 1;
+      return {
+        totalHits,
+        resetTime: doc?.expiresAt ?? expiresAt,
+      };
+    } catch (error) {
+      logger.error("MongoRateLimitStore.increment failed, using in-memory fallback", {
+        namespace: this.prefix,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      fallbackMetrics.failuresTotal++;
+      fallbackMetrics.lastFailureAt = Date.now();
+      fallbackMetrics.fallbackActivations++;
+
+      const fallbackKey = `${this.prefix}:${key}`;
+      const result = incrementFallback(fallbackKey, this.windowMs);
+      return {
+        totalHits: result.count,
+        resetTime: new Date(Date.now() + this.windowMs),
+      };
+    }
   }
 
   async decrement(key: string): Promise<void> {
-    const db = getMongoDB();
-    const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
-    await collection.updateOne(
-      { key: this.buildKey(key) },
-      {
-        $inc: { "value.count": -1 },
-        $set: { updatedAt: new Date() },
-      },
-    );
+    try {
+      const db = getMongoDB();
+      const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
+      await collection.updateOne(
+        { key: this.buildKey(key) },
+        {
+          $inc: { "value.count": -1 },
+          $set: { updatedAt: new Date() },
+        },
+      );
+    } catch (error) {
+      logger.warn("MongoRateLimitStore.decrement failed, skipping (in-memory fallback has no decrement)", {
+        namespace: this.prefix,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async resetKey(key: string): Promise<void> {
-    const db = getMongoDB();
-    const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
-    await collection.deleteOne({ key: this.buildKey(key) });
+    try {
+      const db = getMongoDB();
+      const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
+      await collection.deleteOne({ key: this.buildKey(key) });
+    } catch (error) {
+      logger.warn("MongoRateLimitStore.resetKey failed", {
+        namespace: this.prefix,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      fallbackRateLimitStore.delete(`${this.prefix}:${key}`);
+    }
   }
 
   async resetAll(): Promise<void> {
-    const db = getMongoDB();
-    const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
-    await collection.deleteMany({ namespace: this.prefix });
+    try {
+      const db = getMongoDB();
+      const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
+      await collection.deleteMany({ namespace: this.prefix });
+    } catch (error) {
+      logger.warn("MongoRateLimitStore.resetAll failed", {
+        namespace: this.prefix,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async get(key: string): Promise<ClientRateLimitInfo | undefined> {
-    const db = getMongoDB();
-    const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
-    const doc = (await collection.findOne({
-      key: this.buildKey(key),
-      expiresAt: { $gt: new Date() },
-    })) as RateLimitDocument | null;
+    try {
+      const db = getMongoDB();
+      const collection = db.collection<RateLimitDocument>(RATE_LIMIT_COLLECTION);
+      const doc = (await collection.findOne({
+        key: this.buildKey(key),
+        expiresAt: { $gt: new Date() },
+      })) as RateLimitDocument | null;
 
-    if (!doc) {
+      if (!doc) {
+        return undefined;
+      }
+
+      return {
+        totalHits: doc.value.count,
+        resetTime: doc.expiresAt,
+      };
+    } catch (error) {
+      logger.warn("MongoRateLimitStore.get failed", {
+        namespace: this.prefix,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return undefined;
     }
-
-    return {
-      totalHits: doc.value.count,
-      resetTime: doc.expiresAt,
-    };
   }
 
   private buildKey(key: string): string {

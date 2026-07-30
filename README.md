@@ -173,9 +173,9 @@ pnpm test:coverage
 
 ## Environment Variables
 
-**Full list:** See [ENV_VARS.md](ENV_VARS.md). No mock data; all values must be real or explicitly empty.
+**Full list:** See [ENV_VARS.md](./ENV_VARS.md). No mock data; all values must be real or explicitly empty.
 
-**Required:** `DATABASE_URL` (migrations / fallback), `MONGODB_URI` (MongoDB Atlas), `RABBITMQ_URL`, `JWT_SECRET`. Runtime DB: **Prisma Accelerate** via `PRISMA_ACCELERATE_URL` (see [ENV_VARS.md](ENV_VARS.md)).
+**Required:** `DATABASE_URL` (migrations / fallback), `MONGODB_URI` (MongoDB Atlas), `RABBITMQ_URL`, `JWT_SECRET`. Runtime DB: **Prisma Accelerate** via `PRISMA_ACCELERATE_URL` (see [ENV_VARS.md](./ENV_VARS.md)).
 
 **Fintech:** Flutterwave (`FLUTTERWAVE_SECRET_KEY`, etc.), Paystack (`PAYSTACK_SECRET_KEY`), MTN MoMo (`MTN_MOMO_SUBSCRIPTION_KEY`, `MTN_MOMO_API_USER_ID`, `MTN_MOMO_API_KEY`). Optional: `FINTECH_CURRENCY_PROVIDERS`.
 

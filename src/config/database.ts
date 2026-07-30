@@ -20,14 +20,21 @@ function buildPrismaClient(url: string): PrismaClient {
 }
 
 function applyPrismaClientMiddleware(client: PrismaClient): void {
-  client.$use(async (params: Prisma.MiddlewareParams, next: Prisma.MiddlewareFn) => {
+  const legacyUse = (client as unknown as { $use?: (fn: unknown) => void }).$use;
+  if (typeof legacyUse !== "function") {
+    return;
+  }
+
+  legacyUse.call(client, async (params: unknown, next: (params: unknown) => Promise<unknown>) => {
     const tracer = trace.getTracer("prisma");
-    const spanName = `prisma.${params.model ?? "raw"}.${params.action}`;
+    const model = (params as { model?: string }).model;
+    const action = (params as { action?: string }).action;
+    const spanName = `prisma.${model ?? "raw"}.${action ?? "unknown"}`;
     return tracer.startActiveSpan(spanName, async (span) => {
       span.setAttributes({
         "db.system": "postgresql",
-        "db.operation": params.action,
-        ...(params.model ? { "db.prisma.model": params.model } : {}),
+        "db.operation": action ?? "unknown",
+        ...(model ? { "db.prisma.model": model } : {}),
       });
       try {
         const result = await next(params);
@@ -42,10 +49,12 @@ function applyPrismaClientMiddleware(client: PrismaClient): void {
     });
   });
 
-  client.$use(async (params: Prisma.MiddlewareParams, next: Prisma.MiddlewareFn) => {
+  legacyUse.call(client, async (params: unknown, next: (params: unknown) => Promise<unknown>) => {
+    const model = (params as { model?: string }).model;
+    const action = (params as { action?: string }).action;
     const end = poolAcquireHistogram.startTimer({
-      model: params.model ?? "raw",
-      action: params.action,
+      model: model ?? "raw",
+      action: action ?? "unknown",
     });
     try {
       return await next(params);
@@ -54,7 +63,7 @@ function applyPrismaClientMiddleware(client: PrismaClient): void {
     }
   });
 
-  client.$use(async (params: Prisma.MiddlewareParams, next: Prisma.MiddlewareFn) => {
+  legacyUse.call(client, async (params: unknown, next: (params: unknown) => Promise<unknown>) => {
     let lastError: unknown;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -68,8 +77,8 @@ function applyPrismaClientMiddleware(client: PrismaClient): void {
           lastError = err;
           const backoff = BASE_BACKOFF_MS * 2 ** (attempt - 1);
           logger.warn("Prisma connection pool exhausted, retrying", {
-            model: params.model,
-            action: params.action,
+            model: (params as { model?: string }).model,
+            action: (params as { action?: string }).action,
             attempt,
             maxRetries: MAX_RETRIES,
             backoffMs: backoff,
@@ -122,11 +131,6 @@ if (config.prismaAccelerateUrl && !ACCELERATE_PROTOCOL_RE.test(config.prismaAcce
 // For runtime traffic through Accelerate, keep ACCELERATE_QUERY_TIMEOUT_MS in
 // the Accelerate dashboard ≥ 10 000 ms and ensure your slowest query completes
 // within that window.
-const STATEMENT_TIMEOUT_MS = parseInt(
-  process.env.DB_STATEMENT_TIMEOUT_MS ?? "9000",
-  10,
-);
-
 function appendStatementTimeout(url: string, timeoutMs: number): string {
   try {
     const u = new URL(url);

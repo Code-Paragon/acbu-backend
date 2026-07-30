@@ -341,8 +341,10 @@ async function startServer() {
       }
     } else {
       logger.warn("MONGODB_URI not set; cache will be disabled.");
+      logger.warn(
+        "Rate limiters will run in degraded in-memory fallback mode. Limits are per-instance, not shared across replicas.",
+      );
     }
-
     // Connect to RabbitMQ (optional: server starts even if unreachable or credentials invalid)
     let rabbitReady = false;
     if (config.rabbitmqUrl) {

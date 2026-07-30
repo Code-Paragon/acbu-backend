@@ -133,7 +133,7 @@ describe("B-075 — On-ramp swap race: duplicate processing", () => {
       });
       mintFromUsdcInternal.mockResolvedValue({
         transactionId: "tx-002",
-        acbuAmount: 9,
+        acbuAmount: "9",
       });
       (prisma.onRampSwap.update as jest.Mock).mockResolvedValue({});
 

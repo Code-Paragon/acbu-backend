@@ -27,6 +27,17 @@ import { AppError } from "../middleware/errorHandler";
 import { getLatestAcbuRate } from "../services/rates/acbuRateCache";
 import { extractIdempotencyKey } from "../utils/idempotency";
 
+/** Stringify a Decimal-like value from a Prisma model. Always returns a string. */
+function toStringDecimal(v: unknown): string {
+  if (v === null || v === undefined) return "0";
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  if (typeof v === "object" && v !== null && "toString" in v) {
+    return String((v as { toString: () => string }).toString());
+  }
+  return "0";
+}
+
 /** Best-effort stringify for Decimal-like values in Prisma models. */
 function toNullableStringDecimal(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -46,7 +57,7 @@ function respondFromExistingBurnTx(
 ): void {
   res.status(200).json({
     transaction_id: tx.id,
-    acbu_amount: toNullableStringDecimal(tx.acbuAmountBurned),
+    acbu_amount: toStringDecimal(tx.acbuAmountBurned),
     local_amount: toNullableStringDecimal(tx.localAmount),
     currency: tx.localCurrency,
     fee: toNullableStringDecimal(tx.fee),

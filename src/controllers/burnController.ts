@@ -25,6 +25,18 @@ import {
 } from "../utils/decimalUtils";
 import { AppError } from "../middleware/errorHandler";
 import { getLatestAcbuRate } from "../services/rates/acbuRateCache";
+import { extractIdempotencyKey } from "../utils/idempotency";
+
+/** Stringify a Decimal-like value from a Prisma model. Always returns a string. */
+function toStringDecimal(v: unknown): string {
+  if (v === null || v === undefined) return "0";
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  if (typeof v === "object" && v !== null && "toString" in v) {
+    return String((v as { toString: () => string }).toString());
+  }
+  return "0";
+}
 
 /** Best-effort stringify for Decimal-like values in Prisma models. */
 function toNullableStringDecimal(v: unknown): string | null {
@@ -45,7 +57,7 @@ function respondFromExistingBurnTx(
 ): void {
   res.status(200).json({
     transaction_id: tx.id,
-    acbu_amount: toNullableStringDecimal(tx.acbuAmountBurned),
+    acbu_amount: toStringDecimal(tx.acbuAmountBurned),
     local_amount: toNullableStringDecimal(tx.localAmount),
     currency: tx.localCurrency,
     fee: toNullableStringDecimal(tx.fee),
@@ -127,7 +139,6 @@ export async function burnAcbu(
     }
 
     const acbuDecimal = parseMonetaryString(acbu_amount, "acbu_amount");
-    const acbuNum = acbuDecimal.toNumber(); // Only convert at boundary for existing code
     const burnFeeBps = await getBurnFeeBps(currency);
     const feeAcbuDecimal = calculateFee(acbuDecimal, burnFeeBps);
     const acbuAmount7 = decimalToContractNumber(acbuDecimal).toString();
@@ -162,7 +173,7 @@ export async function burnAcbu(
     const audience = req.audience || "retail";
     await checkWithdrawalLimits(
       audience,
-      acbuNum,
+      acbuDecimal,
       currency,
       req.apiKey?.userId ?? null,
       req.apiKey?.organizationId ?? null,
@@ -177,7 +188,7 @@ export async function burnAcbu(
           idempotencyKey,
           type: "burn",
           status: "pending",
-          acbuAmountBurned: new Decimal(acbuNum),
+          acbuAmountBurned: new Decimal(acbuDecimal),
           localCurrency: currency,
           localAmount: new Decimal(localDecimal),
           recipientAccount: recipient_account as object,

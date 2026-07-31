@@ -4,7 +4,7 @@
  * If 2FA enabled, returns challenge_token (JWT); else issues api_key.
  * OTP (sms/email) is created and published to RabbitMQ OTP_SEND for delivery.
  */
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { totp } from "otplib";
 import { randomUUID } from "crypto";
 import { config } from "../../config/env";
@@ -279,10 +279,10 @@ export async function signup(params: SignupParams): Promise<SignupResult> {
   }
   if (
     !params.passcode ||
-    params.passcode.length < 4 ||
+    params.passcode.length < 8 ||
     params.passcode.length > 64
   ) {
-    throw new Error("Passcode must be 4–64 characters");
+    throw new Error("Passcode must be 8–64 characters");
   }
   const existing = await prisma.user.findFirst({
     where: { username },

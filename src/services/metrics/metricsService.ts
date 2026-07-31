@@ -39,6 +39,7 @@ async function getTradeVolumeByCurrency(
       localCurrency: { not: null },
       createdAt: { gte: since },
     },
+    take: 50_000, // #437: cap to prevent OOM on large tables
     select: { localCurrency: true, acbuAmountBurned: true, localAmount: true },
   });
   const byCurrency = new Map<string, number>();

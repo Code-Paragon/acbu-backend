@@ -9,7 +9,7 @@ import { logger } from "../../config/logger";
 import { connectRabbitMQ, QUEUES } from "../../config/rabbitmq";
 
 const WEBHOOK_HEADER_SIGNATURE = "x-acbu-signature";
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 5; // terminal threshold; backoff is managed by the queue consumer
 
 export type WebhookEventType =
   | "transaction.completed"

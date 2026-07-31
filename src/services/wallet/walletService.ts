@@ -68,10 +68,10 @@ export async function ensureWalletForUser(
     throw new Error("Generated address appears to be a placeholder");
   }
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { stellarAddress: publicKey },
-  });
+    await prisma.user.update({
+      where: { id: userId },
+      data: { stellarAddress: publicKey, walletVersion: { increment: 1 } },
+    });
   logger.info("Wallet created for user", { userId, stellarAddress: publicKey });
   return { wallet_created: true, passphrase: secretKey };
 }
@@ -115,7 +115,7 @@ export async function setStellarAddressForUser(
 
   await prisma.user.update({
     where: { id: userId },
-    data: { stellarAddress },
+    data: { stellarAddress, walletVersion: { increment: 1 } },
   });
   
   logger.info("Stellar address set for user", { userId, stellarAddress });

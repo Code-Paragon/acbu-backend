@@ -14,6 +14,7 @@ import { stellarClient } from "../stellar/client";
 import { getBaseFee } from "../stellar/feeManager";
 import { resolveRecipientToStellarAddress } from "../recipient/recipientResolver";
 import crypto from "crypto";
+import { reserveWalletVersion } from "../wallet/walletStateService";
 
 import { logger, logFinancialEvent } from "../../config/logger";
 import type {
@@ -106,6 +107,8 @@ export async function createTransfer(
     }
   }
 
+  await reserveWalletVersion(senderUserId, options?.ifMatch);
+
   const recipientAddress = await resolveRecipientToStellarAddress(
     to,
     senderUserId,
@@ -159,8 +162,8 @@ export async function createTransfer(
   // prevent precision loss when amount has up to 7 decimal places.
   const [wholePart, fracPart = ""] = amount.split(".");
   const amountInSmallestUnit =
-    parseInt(wholePart, 10) * 100 +
-    parseInt(fracPart.slice(0, 2).padEnd(2, "0"), 10);
+    parseInt(wholePart, 10) * 10000000 +
+    parseInt(fracPart.slice(0, 7).padEnd(7, "0"), 10);
 
   // Emit transfer.initiated immediately after the Transaction row is created
   logFinancialEvent({

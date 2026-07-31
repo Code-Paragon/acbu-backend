@@ -1,4 +1,4 @@
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import { unlockApp, verifyRecoveryOtp } from "../src/services/recovery";
 import { prisma } from "../src/config/database";
 import { generateApiKey } from "../src/middleware/auth";

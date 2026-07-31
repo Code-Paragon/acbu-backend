@@ -1,6 +1,12 @@
 import type { InvestmentWithdrawalRequest } from "@prisma/client";
-import { Prisma, prisma } from "../../config/database";
+import { Prisma } from "@prisma/client";
+import { prisma } from "../../config/database";
 import { isBusinessWithdrawalAllowedDay } from "../../config/investment";
+import {
+  assertSafeSqlTimeZone,
+  getDefaultBusinessTimeZone,
+  resolveTimeZone,
+} from "../../utils/dateUtils";
 
 const WITHDRAWAL_DELAY_HOURS = 24;
 const READY_WITHDRAWAL_BATCH_SIZE = 100;
@@ -33,7 +39,13 @@ export type ReadyInvestmentWithdrawalBatch = {
  * from that trusted source. This keeps delay enforcement independent from API
  * server clock drift.
  */
-export async function getInvestmentWithdrawalTiming(): Promise<InvestmentWithdrawalTiming> {
+export async function getInvestmentWithdrawalTiming(
+  timeZone?: string,
+): Promise<InvestmentWithdrawalTiming> {
+  const businessTimeZone = assertSafeSqlTimeZone(
+    resolveTimeZone(timeZone ?? getDefaultBusinessTimeZone()),
+  );
+
   const [row] = await prisma.$queryRaw<WithdrawalTimingRow[]>(
     Prisma.sql`
       WITH trusted_clock AS (
@@ -42,23 +54,20 @@ export async function getInvestmentWithdrawalTiming(): Promise<InvestmentWithdra
       SELECT
         trusted_now AS "requestedAt",
         trusted_now + ${Prisma.sql`make_interval(hours => ${WITHDRAWAL_DELAY_HOURS})`} AS "availableAt",
-        EXTRACT(DAY FROM (trusted_now AT TIME ZONE 'UTC'))::int AS "businessCalendarDay"
+        EXTRACT(DAY FROM (trusted_now AT TIME ZONE ${businessTimeZone}))::int AS "businessCalendarDay"
       FROM trusted_clock
-    `
+    `,
   );
 
   const requestedAt = assertDate(row?.requestedAt, "requestedAt");
   const availableAt = assertDate(row?.availableAt, "availableAt");
-  const businessCalendarDay = assertBusinessCalendarDay(
-    row?.businessCalendarDay,
-  );
+  const businessCalendarDay = assertBusinessCalendarDay(row?.businessCalendarDay);
 
   return {
     requestedAt,
     availableAt,
     businessCalendarDay,
-    isBusinessWithdrawalAllowedDate:
-      isBusinessWithdrawalAllowedDay(businessCalendarDay),
+    isBusinessWithdrawalAllowedDate: isBusinessWithdrawalAllowedDay(businessCalendarDay),
   };
 }
 
@@ -79,7 +88,7 @@ export async function getReadyInvestmentWithdrawalBatch(
 
 async function getTrustedDatabaseTime(): Promise<Date> {
   const [row] = await prisma.$queryRaw<TrustedClockRow[]>(
-    Prisma.sql`SELECT clock_timestamp() AS "trustedNow"`
+    Prisma.sql`SELECT clock_timestamp() AS "trustedNow"`,
   );
 
   return assertDate(row?.trustedNow, "trustedNow");

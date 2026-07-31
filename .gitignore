@@ -37,6 +37,12 @@ coverage/
 Thumbs.db
 
 # Temporary files
+scratch/
 tmp/
 temp/
 .idea
+
+# Heap snapshots written by the memory leak detector (#436)
+heapdumps/
+*.heapsnapshot
+# Sensitive architecture and security docs

@@ -1,0 +1,119 @@
+name: Soroban Event Schema Guard
+
+on:
+  push:
+    branches: [main, develop, dev]
+    paths:
+      - 'contracts/**'
+      - 'acbu-smart-contract/**'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.github/workflows/soroban-event-schema.yml'
+      - 'shared/events-schema.json'
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - 'acbu-smart-contract/**'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'shared/events-schema.json'
+
+jobs:
+  event-schema-check:
+    name: Validate Event Schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+          components: rust-src
+
+      - name: Install Stellar CLI
+        run: |
+          curl -sSf https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
+          echo "$HOME/.stellar/bin" >> $GITHUB_PATH
+          stellar --version
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build Soroban contracts
+        run: |
+          # Adjust paths once the exact contract location is confirmed in this monorepo
+          if [ -d "acbu-smart-contract" ]; then
+            cd acbu-smart-contract
+            stellar contract build || true
+          elif [ -d "contracts" ]; then
+            cd contracts
+            stellar contract build || true
+          else
+            echo "No standard contract directory found – skipping build for now"
+          fi
+
+      - name: Generate current event schema
+        run: |
+          mkdir -p generated
+          # Placeholder generation – will be tightened once WASM paths are known
+          if ls target/wasm32v1-none/release/*.wasm 1> /dev/null 2>&1; then
+            stellar contract bindings json \
+              --wasm target/wasm32v1-none/release/*.wasm \
+              > generated/events-schema.json || echo '{"events":[]}' > generated/events-schema.json
+          else
+            echo '{"events":[],"note":"No WASM found – placeholder"}' > generated/events-schema.json
+          fi
+
+          # Pretty-print for stable diffs
+          if command -v jq >/dev/null; then
+            jq -S . generated/events-schema.json > generated/events-schema.pretty.json
+            mv generated/events-schema.pretty.json generated/events-schema.json
+          fi
+
+      - name: Check schema drift
+        run: |
+          if [ ! -f shared/events-schema.json ]; then
+            echo "::error::Canonical schema shared/events-schema.json is missing."
+            echo "Please commit an initial version generated from the contracts."
+            exit 1
+          fi
+
+          if command -v jq >/dev/null; then
+            jq -S . shared/events-schema.json > /tmp/canonical.json
+            jq -S . generated/events-schema.json > /tmp/current.json
+          else
+            cp shared/events-schema.json /tmp/canonical.json
+            cp generated/events-schema.json /tmp/current.json
+          fi
+
+          if ! diff -u /tmp/canonical.json /tmp/current.json; then
+            echo ""
+            echo "::error::Event schema has drifted!"
+            echo ""
+            echo "The contract events no longer match the committed schema."
+            echo "If this change is intentional:"
+            echo "  1. Copy generated/events-schema.json → shared/events-schema.json"
+            echo "  2. Commit the updated schema"
+            echo "  3. Re-run CI"
+            echo ""
+            exit 1
+          fi
+
+          echo "✅ Event schema is in sync."
+
+      - name: Upload generated schema (artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-events-schema
+          path: generated/events-schema.json

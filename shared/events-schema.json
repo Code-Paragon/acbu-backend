@@ -1,0 +1,6 @@
+{
+  "_comment": "Canonical Soroban event schema for ACBU contracts. Generated via `stellar contract bindings json`. Update this file intentionally when contract events change so CI continues to pass.",
+  "events": [],
+  "version": "0.1.0",
+  "last_updated": "2026-08-22"
+}

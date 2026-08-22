@@ -1,0 +1,48 @@
+{
+  "_comment": "Canonical event shapes expected by ACBU backend Horizon effect listeners. Update this file when contract event payloads change so CI and downstream parsers stay aligned. When compiled WASM is added under contracts/ or wasm/, prefer generating from stellar contract bindings json.",
+  "version": "0.2.0",
+  "last_updated": "2026-08-22",
+  "source": "manual (derived from current TypeScript listeners)",
+  "events": [
+    {
+      "name": "MintEvent",
+      "contract": "minting",
+      "horizon_effect_types": ["contract_credited", "contract_effect"],
+      "required_fields": ["amount", "account"],
+      "optional_fields": ["recipient", "to", "value", "transaction_hash", "transaction_id", "tx_hash"],
+      "notes": "Parsed by src/jobs/acbu_minting_event_listener.ts. amount may appear as amount or value; recipient may appear as account, recipient, or to."
+    },
+    {
+      "name": "BurnEvent",
+      "contract": "burning",
+      "horizon_effect_types": ["contract_debited", "contract_effect"],
+      "required_fields": ["amount"],
+      "optional_fields": ["account", "from", "value", "transaction_hash"],
+      "notes": "Parsed by src/jobs/acbu_burning_event_listener.ts"
+    },
+    {
+      "name": "EscrowEvent",
+      "contract": "escrow",
+      "horizon_effect_types": ["contract_effect"],
+      "required_fields": [],
+      "optional_fields": ["amount", "account", "status"],
+      "notes": "Parsed by src/jobs/acbu_escrow_event_listener.ts – currently lightweight"
+    },
+    {
+      "name": "LendingPoolEvent",
+      "contract": "lendingPool",
+      "horizon_effect_types": ["contract_effect"],
+      "required_fields": [],
+      "optional_fields": ["amount", "account"],
+      "notes": "Parsed by src/jobs/acbu_lending_pool_event_listener.ts"
+    },
+    {
+      "name": "SavingsVaultEvent",
+      "contract": "savingsVault",
+      "horizon_effect_types": ["contract_effect"],
+      "required_fields": [],
+      "optional_fields": ["amount", "account"],
+      "notes": "Parsed by src/jobs/acbu_savings_vault_event_listener.ts"
+    }
+  ]
+}

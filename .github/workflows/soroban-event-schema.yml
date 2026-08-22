@@ -5,115 +5,81 @@ on:
     branches: [main, develop, dev]
     paths:
       - 'contracts/**'
-      - 'acbu-smart-contract/**'
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - '.github/workflows/soroban-event-schema.yml'
+      - 'wasm/**'
       - 'shared/events-schema.json'
+      - 'src/jobs/acbu_*_event_listener.ts'
+      - 'src/services/stellar/eventListener.ts'
+      - '.github/workflows/soroban-event-schema.yml'
   pull_request:
     paths:
       - 'contracts/**'
-      - 'acbu-smart-contract/**'
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
+      - 'wasm/**'
       - 'shared/events-schema.json'
+      - 'src/jobs/acbu_*_event_listener.ts'
+      - 'src/services/stellar/eventListener.ts'
+      - '.github/workflows/soroban-event-schema.yml'
+  workflow_dispatch:
 
 jobs:
   event-schema-check:
     name: Validate Event Schema
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          targets: wasm32v1-none
-          components: rust-src
+          node-version: '20'
 
-      - name: Install Stellar CLI
-        run: |
-          curl -sSf https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
-          echo "$HOME/.stellar/bin" >> $GITHUB_PATH
-          stellar --version
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build Soroban contracts
-        run: |
-          # Adjust paths once the exact contract location is confirmed in this monorepo
-          if [ -d "acbu-smart-contract" ]; then
-            cd acbu-smart-contract
-            stellar contract build || true
-          elif [ -d "contracts" ]; then
-            cd contracts
-            stellar contract build || true
-          else
-            echo "No standard contract directory found – skipping build for now"
-          fi
-
-      - name: Generate current event schema
-        run: |
-          mkdir -p generated
-          # Placeholder generation – will be tightened once WASM paths are known
-          if ls target/wasm32v1-none/release/*.wasm 1> /dev/null 2>&1; then
-            stellar contract bindings json \
-              --wasm target/wasm32v1-none/release/*.wasm \
-              > generated/events-schema.json || echo '{"events":[]}' > generated/events-schema.json
-          else
-            echo '{"events":[],"note":"No WASM found – placeholder"}' > generated/events-schema.json
-          fi
-
-          # Pretty-print for stable diffs
-          if command -v jq >/dev/null; then
-            jq -S . generated/events-schema.json > generated/events-schema.pretty.json
-            mv generated/events-schema.pretty.json generated/events-schema.json
-          fi
-
-      - name: Check schema drift
+      - name: Validate shared event schema exists and is well-formed
         run: |
           if [ ! -f shared/events-schema.json ]; then
-            echo "::error::Canonical schema shared/events-schema.json is missing."
-            echo "Please commit an initial version generated from the contracts."
+            echo "::error::shared/events-schema.json is missing"
             exit 1
           fi
 
-          if command -v jq >/dev/null; then
-            jq -S . shared/events-schema.json > /tmp/canonical.json
-            jq -S . generated/events-schema.json > /tmp/current.json
+          # Basic JSON validity + required top-level keys
+          node -e '
+            const fs = require("fs");
+            const schema = JSON.parse(fs.readFileSync("shared/events-schema.json", "utf8"));
+            if (!schema.version) throw new Error("Missing version");
+            if (!Array.isArray(schema.events)) throw new Error("events must be an array");
+            if (schema.events.length === 0) {
+              console.warn("::warning::events array is empty – populate with real event shapes when available");
+            }
+            for (const ev of schema.events) {
+              if (!ev.name) throw new Error("Event missing name");
+              if (!ev.contract) throw new Error(`Event ${ev.name} missing contract`);
+              if (!Array.isArray(ev.required_fields)) throw new Error(`Event ${ev.name} missing required_fields`);
+            }
+            console.log("✅ shared/events-schema.json is valid");
+            console.log(`   version: ${schema.version}`);
+            console.log(`   events:  ${schema.events.length}`);
+          '
+
+      - name: Check for future WASM artifacts (informational)
+        run: |
+          WASM_COUNT=$(find . -name "*.wasm" \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*" \
+            2>/dev/null | wc -l || echo 0)
+
+          if [ "$WASM_COUNT" -gt 0 ]; then
+            echo "Found $WASM_COUNT WASM artifact(s)."
+            echo "When contracts are present, prefer generating schema via:"
+            echo "  stellar contract bindings json --wasm <path> > shared/events-schema.json"
           else
-            cp shared/events-schema.json /tmp/canonical.json
-            cp generated/events-schema.json /tmp/current.json
+            echo "No WASM artifacts present (expected)."
+            echo "Schema is currently maintained manually to match Horizon effect shapes"
+            echo "parsed by the TypeScript event listeners."
           fi
 
-          if ! diff -u /tmp/canonical.json /tmp/current.json; then
-            echo ""
-            echo "::error::Event schema has drifted!"
-            echo ""
-            echo "The contract events no longer match the committed schema."
-            echo "If this change is intentional:"
-            echo "  1. Copy generated/events-schema.json → shared/events-schema.json"
-            echo "  2. Commit the updated schema"
-            echo "  3. Re-run CI"
-            echo ""
-            exit 1
-          fi
-
-          echo "✅ Event schema is in sync."
-
-      - name: Upload generated schema (artifact)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-events-schema
-          path: generated/events-schema.json
+      - name: Summary
+        run: |
+          echo "Event schema guard passed."
+          echo "See shared/events-schema.json and WASM_INTEGRITY.md for next steps"
+          echo "when real Soroban contracts are added under contracts/ or wasm/."

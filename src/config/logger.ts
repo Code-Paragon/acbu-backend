@@ -4,9 +4,10 @@ import path from "path";
 import fs from "fs";
 import { config } from "./env";
 import { FinancialLogPayload, FinancialEventEnvironment } from "../types/logging";
-import { redactFormat, redactLogValue, redactPii } from "./logRedaction";
-
+// Re-export redaction helpers so callers that previously imported from logger.ts
+// continue to work without changes. The implementations live in logRedaction.ts.
 export { redactFormat, redactLogValue, redactPii } from "./logRedaction";
+import { redactFormat, redactPii } from "./logRedaction";
 
 export type LogLevel = "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly";
 

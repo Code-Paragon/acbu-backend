@@ -72,11 +72,11 @@ export const logger = winston.createLogger({
       format: isProduction
         ? consoleFormat
         : winston.format.combine(
-            redactFormat(),
-            winston.format.colorize(),
-            winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-            winston.format.simple(),
-          ),
+          redactFormat(),
+          winston.format.colorize(),
+          winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+          winston.format.simple(),
+        ),
     }),
     // Rotating error log: daily rotation, 14-day retention, 100 MB max per file
     new DailyRotateFile({

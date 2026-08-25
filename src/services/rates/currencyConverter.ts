@@ -102,7 +102,7 @@ export async function convertLocalToUsd(
 
   // Convert using high-precision Decimal arithmetic
   const localAmountDecimal = new Decimal(localAmount);
-  const rateDecimal = new Decimal(localToAcbuRate);
+  const rateDecimal = new Decimal(localToAcbuRate as Decimal);
 
   // Calculate ACBU equivalent
   const acbuAmount = localAmountDecimal.div(rateDecimal);
@@ -173,7 +173,7 @@ export async function convertLocalToUsdWithPrecision(
 
   // Convert using high-precision Decimal arithmetic
   const localAmountDecimal = new Decimal(localAmount);
-  const rateDecimal = new Decimal(localToAcbuRate);
+  const rateDecimal = new Decimal(localToAcbuRate as Decimal);
 
   // Calculate ACBU equivalent
   const acbuAmount = localAmountDecimal.div(rateDecimal);

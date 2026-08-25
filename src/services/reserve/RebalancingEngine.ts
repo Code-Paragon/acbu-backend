@@ -4,12 +4,15 @@
  * Uses fintech router for FX rates; instructions can be consumed by REBALANCING queue for execution.
  */
 import { prisma } from "../../config/database";
+import { config } from "../../config/env";
 import { logger } from "../../config/logger";
 import { getFintechRouter } from "../fintech";
 import { reserveTracker } from "./ReserveTracker";
 import type { ReserveHealth, ReserveStatus } from "./ReserveTracker";
 
-const DRIFT_THRESHOLD_PCT = 1; // rebalance when |actual - target| > 1%
+// #627: Read from config so the threshold can be tuned via RESERVE_DRIFT_THRESHOLD_PCT
+// without a code change or redeploy of the full service.
+const DRIFT_THRESHOLD_PCT = config.reserve.driftThresholdPct;
 
 export interface RebalanceInstruction {
   fromCurrency: string;

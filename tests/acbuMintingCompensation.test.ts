@@ -17,10 +17,6 @@ jest.mock("../src/config/database", () => ({
   },
 }));
 
-jest.mock("../src/config/logger", () => ({
-  logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() },
-}));
-
 describe("MintingService Compensation", () => {
   beforeEach(() => {
     jest.clearAllMocks();

@@ -6,6 +6,9 @@
 
 import { z, ZodSchema } from "zod";
 
+// Privacy Validation Schema
+import { consentPreferenceSchema } from "../validation/schemas";
+
 // Auth Controller
 import {
   signinSchema,
@@ -125,6 +128,9 @@ export const routeSchemas: Record<string, ZodSchema> = {
 
   // Onramp endpoints
   "POST /v1/onramp/register": onrampBodySchema,
+
+  // Privacy endpoints
+  "PUT /v1/privacy/consent": consentPreferenceSchema,
 };
 
 /**

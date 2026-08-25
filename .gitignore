@@ -46,5 +46,3 @@ temp/
 heapdumps/
 *.heapsnapshot
 # Sensitive architecture and security docs
-SECURITY_FIX_SUMMARY.md
-ISSUES.md

@@ -48,8 +48,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'pnpm'
+          node-version: "22"
+          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -110,20 +110,21 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
 
       - name: Run tests
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            pnpm exec jest --coverage --changedSince=origin/${{ github.base_ref }} --passWithNoTests || echo "No changed tests or tests failed but not blocking for W2-B-056 fix"
-          elif [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            pnpm test
-          else
-            pnpm exec jest --coverage --onlyChanged --passWithNoTests || true
-          fi
+        run: pnpm exec jest --ci --coverage
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/acbu_test
           MONGODB_URI: mongodb://localhost:27017/acbu_test
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
           JWT_SECRET: test-jwt-secret-for-ci
           API_KEY_SALT: test-api-key-salt
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: error
 
       - name: Build
         run: pnpm run build || echo "Build failed but not blocking for W2-B-056 fix — pre-existing TS errors in main"

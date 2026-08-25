@@ -69,8 +69,8 @@ const envSchema = z.object({
   LOG_LEVEL_CONSOLE: z.string().optional(),
   LOG_LEVEL_FILE: z.string().optional(),
   BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
-  USDC_ISSUER_TESTNET: z.string().trim().min(1),
-  USDC_ISSUER_MAINNET: z.string().trim().min(1),
+  USDC_ISSUER_TESTNET: z.string().trim().min(1).optional(),
+  USDC_ISSUER_MAINNET: z.string().trim().min(1).optional(),
   CORS_ORIGIN: z.string().optional(),
   CDN_URL: z.string().url().optional(),
 
@@ -147,6 +147,14 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.CHALLENGE_TOKEN_SECRET
   throw new Error(
     "Missing required environment variable: CHALLENGE_TOKEN_SECRET (must be set explicitly in production, distinct from JWT_SECRET)",
   );
+}
+
+// #751: USDC issuers required in production only — relaxed for local dev/test so .env.local boots without them
+if (parsed.data.NODE_ENV === "production" && !parsed.data.USDC_ISSUER_TESTNET) {
+  throw new Error("Missing required environment variable: USDC_ISSUER_TESTNET");
+}
+if (parsed.data.NODE_ENV === "production" && !parsed.data.USDC_ISSUER_MAINNET) {
+  throw new Error("Missing required environment variable: USDC_ISSUER_MAINNET");
 }
 
 const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "change-me-in-production";

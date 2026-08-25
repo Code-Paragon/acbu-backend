@@ -1,6 +1,7 @@
 import { MintingService } from "../src/services/contracts/acbuMinting.service";
 import { contractClient } from "../src/services/stellar/contractClient";
 import { stellarClient } from "../src/services/stellar/client";
+import { prisma } from "../src/config/database";
 
 jest.mock("../src/services/stellar/contractClient", () => ({
   contractClient: { invokeContract: jest.fn() },
@@ -17,6 +18,10 @@ jest.mock("../src/config/database", () => ({
   prisma: {
     transaction: { update: mockTransactionUpdate },
   },
+}));
+
+jest.mock("../src/config/logger", () => ({
+  logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() },
 }));
 
 describe("MintingService Compensation", () => {

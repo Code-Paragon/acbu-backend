@@ -45,12 +45,15 @@ jobs:
           --health-retries 10
 
       rabbitmq:
-        image: rabbitmq:3.13-management-alpine
+        image: rabbitmq:3.13.4-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: acbu_e2e
+          RABBITMQ_DEFAULT_PASS: acbu_e2e_pw
         ports:
           - 5672:5672
           - 15672:15672
         options: >-
-          --health-cmd "rabbitmq-diagnostics -q status"
+          --health-cmd "rabbitmq-diagnostics ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10

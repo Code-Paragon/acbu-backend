@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -57,6 +57,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify bcrypt native build
+        run: node -e "require('bcrypt')"
+
       - name: Run tests
         run: pnpm test
 
@@ -86,6 +89,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify bcrypt native build
+        run: node -e "require('bcrypt')"
 
       - name: Generate Prisma client
         run: pnpm prisma:generate

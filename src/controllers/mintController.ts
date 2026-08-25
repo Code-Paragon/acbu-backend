@@ -96,7 +96,6 @@ export async function mintFromUsdc(
       wallet_address,
     );
     const usdcDecimal = parseMonetaryString(usdc_amount, "usdc_amount");
-    const usdcNum = usdcDecimal.toNumber(); // Only convert at boundary for limits service
     // SECURITY: Always enforce circuit breaker and deposit limits
     // Previously these checks were skipped when req.audience was undefined,
     // allowing bypass of critical financial controls via direct /mint/usdc route
@@ -114,7 +113,7 @@ export async function mintFromUsdc(
     const audience = req.audience || "retail";
     await checkDepositLimits(
       audience,
-      usdcNum,
+      usdcDecimal,
       userId,
       req.apiKey?.organizationId ?? null,
     );
@@ -175,7 +174,7 @@ export async function mintFromUsdcInternal(
   walletAddress: string,
   userId?: string,
   organizationId?: string,
-): Promise<{ transactionId: string; acbuAmount: number }> {
+): Promise<{ transactionId: string; acbuAmount: string }> {
   const usdcDecimal = new Decimal(usdcAmount);
   const feeUsdcDecimal = calculateFee(usdcDecimal, MINT_FEE_BPS);
   const usdcAmount7 = decimalToContractNumber(usdcDecimal).toString();
@@ -226,7 +225,6 @@ export async function mintFromUsdcInternal(
       recipient: walletAddress,
     });
     const acbuDecimal = contractNumberToDecimal(Number(result.acbuAmount));
-    const acbuNum = acbuDecimal.toNumber();
     await prisma.transaction.update({
       where: { id: tx.id },
       data: {
@@ -236,7 +234,7 @@ export async function mintFromUsdcInternal(
         completedAt: new Date(),
       },
     });
-    return { transactionId: tx.id, acbuAmount: acbuNum };
+    return { transactionId: tx.id, acbuAmount: acbuDecimal.toString() };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("Soroban mint_from_usdc failed", {
@@ -366,7 +364,7 @@ export async function depositFromBasketCurrency(
 
     await checkDepositLimits(
       audience,
-      amountUsd,
+      new Decimal(amountUsd),
       userId,
       req.apiKey?.organizationId ?? null,
     );

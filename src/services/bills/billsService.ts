@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../../config/database";
 import { AppError } from "../../middleware/errorHandler";
@@ -155,7 +156,7 @@ export async function payBill(
   // paths in this repo. The new bill_payment type is included in limit queries.
   await checkWithdrawalLimits(
     audience,
-    request.amount,
+    new Decimal(request.amount),
     product.currency,
     request.userId ?? null,
     request.organizationId ?? null,

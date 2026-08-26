@@ -12,6 +12,7 @@ on:
 jobs:
   snyk-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 

@@ -232,6 +232,7 @@ app.use(
   webhookRoutes,
 );
 app.use(
+  "/",
   express.json({
     inflate: true,
     limit: MAX_REQUEST_BODY_SIZE,

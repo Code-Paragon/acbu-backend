@@ -9,6 +9,10 @@ import { getContractAddresses } from "../config/contracts";
 import { enqueueUsdcConversion } from "./usdcConversionJob";
 import { logger } from "../config/logger";
 import { prisma } from "../config/database";
+import {
+  resolveTxHash,
+  verifyTxHashOnChain,
+} from "../services/stellar/txHashValidation";
 
 const MINT_EFFECT_TYPES = ["contract_credited", "contract_effect"]; // Horizon effect types for mint/credit
 
@@ -24,21 +28,6 @@ function parseRecipientFromEffect(
 ): string | null {
   const account = data.account ?? data.recipient ?? data.to;
   if (typeof account === "string" && account.length === 56) return account;
-  return null;
-}
-
-/**
- * Try to get transaction hash from effect (Horizon may expose it via _links or transaction_id).
- */
-function parseTxHashFromEffect(data: Record<string, unknown>): string | null {
-  const txHash = data.transaction_hash ?? data.transaction_id ?? data.tx_hash;
-  if (typeof txHash === "string") return txHash;
-  const links = data._links as Record<string, { href?: string }> | undefined;
-  const txHref = links?.transaction?.href;
-  if (typeof txHref === "string") {
-    const match = txHref.match(/\/([a-f0-9]+)$/i);
-    if (match) return match[1];
-  }
   return null;
 }
 
@@ -84,22 +73,37 @@ export async function startMintEventListener(): Promise<void> {
       return;
     }
 
-    const rawTxHash =
-      parseTxHashFromEffect(data) ??
-      (event.data as Record<string, unknown> | undefined)?.id;
-    const txHash: string =
-      typeof rawTxHash === "string"
-        ? rawTxHash
-        : `effect-${event.ledger}-${Date.now()}`;
-    let transactionId: string | null = null;
-    if (txHash.length === 64) {
-      transactionId = await findTransactionByBlockchainHash(txHash);
+    const { txHash: resolvedHash, verified } = await resolveTxHash(data);
+    if (resolvedHash === null) {
+      logger.debug("Mint event skipped: no verifiable tx hash found", {
+        ledger: event.ledger,
+      });
+      return;
     }
+    if (!verified) {
+      logger.warn("Mint event: rejecting event with unverified tx hash", {
+        txHash: resolvedHash,
+        ledger: event.ledger,
+      });
+      return;
+    }
+
+    const onChainValid = await verifyTxHashOnChain(resolvedHash);
+    if (!onChainValid) {
+      logger.warn("Mint event: rejecting event — tx hash not found on-chain", {
+        txHash: resolvedHash,
+        ledger: event.ledger,
+      });
+      return;
+    }
+
+    let transactionId: string | null = null;
+    transactionId = await findTransactionByBlockchainHash(resolvedHash);
 
     await enqueueUsdcConversion({
       usdcAmount: amountStr,
       recipient,
-      txHash,
+      txHash: resolvedHash,
       transactionId: transactionId ?? undefined,
     });
   };

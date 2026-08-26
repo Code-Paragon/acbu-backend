@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const STELLAR_TX_HASH_REGEX = /^[a-f0-9]{64}$/i;
+
 // ===================== SHARED BASE SCHEMAS =====================
 
 export const BaseEventSchema = z.object({
@@ -21,9 +23,9 @@ export const EscrowEventSchema = BaseEventSchema.extend({
     account: z.string().optional(),
     recipient: z.string().optional(),
     to: z.string().optional(),
-    transaction_hash: z.string().optional(),
-    transaction_id: z.string().optional(),
-    tx_hash: z.string().optional(),
+    transaction_hash: z.string().regex(STELLAR_TX_HASH_REGEX).optional(),
+    transaction_id: z.string().regex(STELLAR_TX_HASH_REGEX).optional(),
+    tx_hash: z.string().regex(STELLAR_TX_HASH_REGEX).optional(),
   }).passthrough(),
 });
 
@@ -38,7 +40,7 @@ export const LendingPoolEventSchema = BaseEventSchema.extend({
     account: z.string().optional(),
     recipient: z.string().optional(),
     to: z.string().optional(),
-    transaction_hash: z.string().optional(),
+    transaction_hash: z.string().regex(STELLAR_TX_HASH_REGEX).optional(),
   }).passthrough(),
 });
 
@@ -53,7 +55,7 @@ export const SavingsVaultEventSchema = BaseEventSchema.extend({
     account: z.string().optional(),
     recipient: z.string().optional(),
     to: z.string().optional(),
-    transaction_hash: z.string().optional(),
+    transaction_hash: z.string().regex(STELLAR_TX_HASH_REGEX).optional(),
   }).passthrough(),
 });
 
@@ -63,7 +65,7 @@ export type SavingsVaultEvent = z.infer<typeof SavingsVaultEventSchema>;
 
 export const BurnEventSchema = z.object({
   transactionId: z.string().optional(),
-  txHash: z.string().min(64).max(64),
+  txHash: z.string().regex(STELLAR_TX_HASH_REGEX),
 });
 
 export type BurnEvent = z.infer<typeof BurnEventSchema>;
@@ -73,7 +75,7 @@ export type BurnEvent = z.infer<typeof BurnEventSchema>;
 export const MintEventSchema = z.object({
   usdcAmount: z.string().regex(/^\d+(\.\d+)?$/),
   recipient: z.string().min(56).max(56),
-  txHash: z.string().min(64).max(64).optional(),
+  txHash: z.string().regex(STELLAR_TX_HASH_REGEX).optional(),
   transactionId: z.string().optional(),
 });
 

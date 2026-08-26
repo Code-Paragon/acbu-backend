@@ -117,6 +117,11 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["true", "false"]))
     .default("false"),
+
+  // #729: Admin email(s) for weight-drift audit notifications.
+  // Comma-separated for multiple recipients: "admin@example.com,ops@example.com"
+  // Optional; when absent, audit emails are skipped (job still runs and persists audit).
+  ADMIN_NOTIFICATION_EMAIL: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -437,6 +442,9 @@ export const config = {
       | "africas_talking"
       | "log",
     alertEmail: process.env.NOTIFICATION_ALERT_EMAIL || "",
+    // #729: Admin email address(es) for weight-drift audit notifications.
+    // Comma-separated for multiple recipients: "admin@example.com,ops@example.com"
+    adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL || "",
     twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",
     twilioFromNumber: process.env.TWILIO_FROM_NUMBER || "",
@@ -548,4 +556,8 @@ export const config = {
     checkIntervalMs: env.MEMORY_CHECK_INTERVAL_MS,
     heapDumpDir: env.HEAP_DUMP_DIR,
   },
+
+  // #729: Admin notification email for weight-drift audit alerts.
+  // Comma-separated list of addresses; empty string or undefined means no emails sent.
+  ADMIN_NOTIFICATION_EMAIL: env.ADMIN_NOTIFICATION_EMAIL || "",
 };

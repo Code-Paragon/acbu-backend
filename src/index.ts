@@ -242,6 +242,8 @@ app.use(
   }),
 );
 
+// Express requires a 4-arg signature to be recognized as an error handler;
+// `_req` is intentionally unused and prefixed to satisfy noUnusedParameters (#722).
 app.use(
   (
     err: Error & { type?: string },

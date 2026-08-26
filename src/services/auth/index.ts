@@ -1,9 +1,12 @@
 export {
   issueAdminKey,
   issueBreakGlassKey,
+  issueRefreshToken,
   listPrivilegedKeys,
+  refreshAccessToken,
   requestAdminMfaChallenge,
   revokePrivilegedKey,
+  revokeRefreshToken,
   signin,
   signup,
   verify2fa,

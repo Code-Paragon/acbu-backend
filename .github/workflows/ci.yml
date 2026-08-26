@@ -63,7 +63,7 @@ jobs:
         run: node -e "require('bcrypt')"
 
       - name: Run tests
-        run: pnpm test
+        run: pnpm exec jest --ci --coverage
 
       - name: Upload coverage report
         if: always()

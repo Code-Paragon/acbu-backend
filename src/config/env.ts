@@ -150,7 +150,10 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.CHALLENGE_TOKEN_SECRET
 }
 
 // #632: CHALLENGE_TOKEN_SECRET and JWT_SECRET must be distinct in production
-if (parsed.data.NODE_ENV === "production" && parsed.data.CHALLENGE_TOKEN_SECRET === parsed.data.JWT_SECRET) {
+if (
+  parsed.data.NODE_ENV === "production" &&
+  parsed.data.CHALLENGE_TOKEN_SECRET === parsed.data.JWT_SECRET
+) {
   throw new Error(
     "CHALLENGE_TOKEN_SECRET must be distinct from JWT_SECRET in production to maintain 2FA trust boundary",
   );
@@ -218,13 +221,19 @@ if (parsed.data.NODE_ENV === "production") {
   const invalidFintechKeys: string[] = [];
   if (!process.env.FLUTTERWAVE_SECRET_KEY || isPlaceholderKey(process.env.FLUTTERWAVE_SECRET_KEY))
     invalidFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
-  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET || isPlaceholderKey(process.env.FLUTTERWAVE_WEBHOOK_SECRET))
+  if (
+    !process.env.FLUTTERWAVE_WEBHOOK_SECRET ||
+    isPlaceholderKey(process.env.FLUTTERWAVE_WEBHOOK_SECRET)
+  )
     invalidFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
   if (!process.env.PAYSTACK_SECRET_KEY || isPlaceholderKey(process.env.PAYSTACK_SECRET_KEY))
     invalidFintechKeys.push("PAYSTACK_SECRET_KEY");
   if (!process.env.BILLS_WEBHOOK_SECRET || isPlaceholderKey(process.env.BILLS_WEBHOOK_SECRET))
     invalidFintechKeys.push("BILLS_WEBHOOK_SECRET");
-  if (!process.env.MTN_MOMO_SUBSCRIPTION_KEY || isPlaceholderKey(process.env.MTN_MOMO_SUBSCRIPTION_KEY))
+  if (
+    !process.env.MTN_MOMO_SUBSCRIPTION_KEY ||
+    isPlaceholderKey(process.env.MTN_MOMO_SUBSCRIPTION_KEY)
+  )
     invalidFintechKeys.push("MTN_MOMO_SUBSCRIPTION_KEY");
   if (!process.env.MTN_MOMO_API_USER_ID || isPlaceholderKey(process.env.MTN_MOMO_API_USER_ID))
     invalidFintechKeys.push("MTN_MOMO_API_USER_ID");

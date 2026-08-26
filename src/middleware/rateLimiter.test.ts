@@ -6,6 +6,7 @@ import {
   fallbackMetrics,
   fallbackRateLimitStore,
   FALLBACK_MAX_REQUESTS_PER_IP,
+  injectFallbackState,
 } from "./rateLimiter";
 import { cacheService } from "../utils/cache";
 import { logger } from "../config/logger";
@@ -228,9 +229,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
   describe("Cache Failure Scenario (CRITICAL)", () => {
     it("should enforce strict fallback limits when cache fails", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("MongoDB unavailable"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("MongoDB unavailable"));
 
       // Send 25 requests
       for (let i = 0; i < 25; i++) {
@@ -252,22 +251,18 @@ describe("Rate Limiter with Circuit Breaker", () => {
     });
 
     it("should NOT allow unlimited requests during cache outage (NO fail-open)", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Connection refused"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Connection refused"));
 
-      const isolatedReq = { ...mockReq, ip: "55.55.55.55" }; 
+      const isolatedReq = { ...mockReq, ip: "55.55.55.55" };
 
       // Send 100 requests rapidly
       for (let i = 0; i < 100; i++) {
-         await apiKeyRateLimiter(isolatedReq, mockRes, mockNext); 
+        await apiKeyRateLimiter(isolatedReq, mockRes, mockNext);
       }
 
       // Only 20 should pass (fallback limit), 80 should be rejected
       expect(mockNext).toHaveBeenCalledTimes(FALLBACK_MAX_REQUESTS_PER_IP);
-      expect(mockRes.status).toHaveBeenCalledTimes(
-        100 - FALLBACK_MAX_REQUESTS_PER_IP,
-      );
+      expect(mockRes.status).toHaveBeenCalledTimes(100 - FALLBACK_MAX_REQUESTS_PER_IP);
     });
 
     it("should return 429 when cache returns null (cap hit)", async () => {
@@ -282,9 +277,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
   describe("Circuit Breaker Activation", () => {
     it("should open circuit breaker after 5 consecutive failures", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Connection refused"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Connection refused"));
 
       // Trigger 5 failures
       for (let i = 0; i < 5; i++) {
@@ -305,9 +298,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
       // Manually open circuit breaker
       circuitBreaker.reset();
       for (let i = 0; i < 5; i++) {
-        (cacheService.increment as jest.Mock).mockRejectedValueOnce(
-          new Error("Cache down"),
-        );
+        (cacheService.increment as jest.Mock).mockRejectedValueOnce(new Error("Cache down"));
       }
 
       // Force circuit to OPEN state
@@ -333,9 +324,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
     });
 
     it("should remain OPEN during cooldown period", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       // Open circuit
       for (let i = 0; i < 5; i++) {
@@ -352,9 +341,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
   describe("Circuit Breaker Recovery", () => {
     it("should transition to HALF_OPEN after cooldown", async () => {
       // Setup: Open the circuit
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       for (let i = 0; i < 5; i++) {
         await apiKeyRateLimiter(mockReq, mockRes, mockNext);
@@ -375,9 +362,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
     it("should close circuit after 2 consecutive successes in HALF_OPEN", async () => {
       // Open circuit first
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       for (let i = 0; i < 5; i++) {
         await apiKeyRateLimiter(mockReq, mockRes, mockNext);
@@ -404,9 +389,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
     it("should reopen circuit on failure in HALF_OPEN state", async () => {
       // Open circuit
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       for (let i = 0; i < 5; i++) {
         await apiKeyRateLimiter(mockReq, mockRes, mockNext);
@@ -419,9 +402,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
       expect(circuitBreaker.getState()).toBe("HALF_OPEN");
 
       // Simulate another failure
-      (cacheService.increment as jest.Mock).mockRejectedValueOnce(
-        new Error("Still down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValueOnce(new Error("Still down"));
 
       await apiKeyRateLimiter(mockReq, mockRes, mockNext);
 
@@ -434,9 +415,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
   describe("Multiple IPs Isolation", () => {
     it("should handle multiple IPs independently in fallback mode", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       const ip1Req = { ...mockReq, ip: "10.0.0.1" };
       const ip2Req = { ...mockReq, ip: "10.0.0.2" };
@@ -471,9 +450,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
   describe("Security Tests", () => {
     it("should handle missing IP gracefully", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       const reqWithoutIp = {
         ...mockReq,
@@ -495,9 +472,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
     });
 
     it("should not bypass rate limiting with malformed requests", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       const malformedReq = {
         ip: null,
@@ -540,9 +515,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
   describe("Metrics Emission", () => {
     it("should emit metrics during fallback activation", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       await apiKeyRateLimiter(mockReq, mockRes, mockNext);
 
@@ -552,9 +525,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
     });
 
     it("should increment rejectionsInFallback when limit exceeded", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       // Exceed fallback limit
       for (let i = 0; i < 25; i++) {
@@ -566,9 +537,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
     it("should log warning when circuit breaker is OPEN", async () => {
       // Open circuit
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Cache down"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Cache down"));
 
       for (let i = 0; i < 5; i++) {
         await apiKeyRateLimiter(mockReq, mockRes, mockNext);
@@ -590,9 +559,7 @@ describe("Rate Limiter with Circuit Breaker", () => {
     });
 
     it("should log error when cache increment fails", async () => {
-      (cacheService.increment as jest.Mock).mockRejectedValue(
-        new Error("Connection timeout"),
-      );
+      (cacheService.increment as jest.Mock).mockRejectedValue(new Error("Connection timeout"));
 
       await apiKeyRateLimiter(mockReq, mockRes, mockNext);
 
@@ -609,8 +576,6 @@ describe("Rate Limiter with Circuit Breaker", () => {
 
   describe("Fallback State Injection", () => {
     it("should inject fallback state into request context", async () => {
-      const { injectFallbackState } = require("./rateLimiter");
-
       const req: any = {};
       const res: any = {};
       const next = jest.fn();
@@ -718,43 +683,43 @@ describe("Rate Limiter with Circuit Breaker", () => {
   });
 
   describe("Atomic Cap — Concurrent Load Test (B-028)", () => {
-  it("should never exceed maxRequests under concurrent load", async () => {
-    const maxRequests = 10;
-    let callCount = 0;
+    it("should never exceed maxRequests under concurrent load", async () => {
+      const maxRequests = 10;
+      let callCount = 0;
 
-    // Simulate atomic MongoDB cap behavior:
-    // increment returns a count until max, then returns null
-    (cacheService.increment as jest.Mock).mockImplementation(async () => {
-      callCount++;
-      if (callCount <= maxRequests) {
-        return { count: callCount };
-      }
-      return null; // cap hit
+      // Simulate atomic MongoDB cap behavior:
+      // increment returns a count until max, then returns null
+      (cacheService.increment as jest.Mock).mockImplementation(async () => {
+        callCount++;
+        if (callCount <= maxRequests) {
+          return { count: callCount };
+        }
+        return null; // cap hit
+      });
+
+      const req = {
+        ip: "10.0.0.1",
+        apiKey: { id: "concurrent-test-key", rateLimit: maxRequests },
+      };
+
+      const results: number[] = [];
+
+      // Fire 20 requests concurrently
+      await Promise.all(
+        Array.from({ length: 20 }, async () => {
+          const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+          const next = jest.fn();
+          await apiKeyRateLimiter(req as any, res as any, next);
+          results.push(next.mock.calls.length > 0 ? 200 : 429);
+        }),
+      );
+
+      const allowed = results.filter((r) => r === 200).length;
+      const rejected = results.filter((r) => r === 429).length;
+
+      // Must never exceed the cap
+      expect(allowed).toBeLessThanOrEqual(maxRequests);
+      expect(rejected).toBeGreaterThanOrEqual(10);
     });
-
-    const req = {
-      ip: "10.0.0.1",
-      apiKey: { id: "concurrent-test-key", rateLimit: maxRequests },
-    };
-
-    const results: number[] = [];
-
-    // Fire 20 requests concurrently
-    await Promise.all(
-      Array.from({ length: 20 }, async () => {
-        const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
-        const next = jest.fn();
-        await apiKeyRateLimiter(req as any, res as any, next);
-        results.push(next.mock.calls.length > 0 ? 200 : 429);
-      }),
-    );
-
-    const allowed = results.filter((r) => r === 200).length;
-    const rejected = results.filter((r) => r === 429).length;
-
-    // Must never exceed the cap
-    expect(allowed).toBeLessThanOrEqual(maxRequests);
-    expect(rejected).toBeGreaterThanOrEqual(10);
   });
-});
 });

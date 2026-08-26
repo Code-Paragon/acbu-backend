@@ -3,9 +3,9 @@
  *
  * These tests use fast-check to generate hundreds of random inputs
  * and verify mathematical properties that must always hold true.
- *
- * To run: npm install --save-dev fast-check
- * Then: npm test -- feePolicyService.pbt.test.ts
+ * 
+ * To run: pnpm add -D fast-check
+ * Then: pnpm test -- feePolicyService.pbt.test.ts
  */
 
 import * as fc from "fast-check";

@@ -6,7 +6,7 @@
  */
 import bcrypt from "bcrypt";
 import { totp } from "otplib";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { config } from "../../config/env";
 import { prisma } from "../../config/database";
 import { generateApiKey } from "../../middleware/auth";
@@ -904,7 +904,7 @@ function generateSecureRefreshToken(): string {
 }
 
 async function hashRefreshToken(token: string): Promise<string> {
-  return bcrypt.hash(token, 12);
+  return createHash('sha256').update(token).digest('hex');
 }
 
 /**

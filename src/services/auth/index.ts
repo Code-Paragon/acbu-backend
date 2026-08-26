@@ -27,4 +27,9 @@ export {
   type SignupResult,
   type Verify2faParams,
   type Verify2faResult,
+  type IssueRefreshTokenParams,
+  type IssueRefreshTokenResult,
+  type RefreshAccessTokenParams,
+  type RefreshAccessTokenResult,
+  type RevokeRefreshTokenParams,
 } from "./authService";

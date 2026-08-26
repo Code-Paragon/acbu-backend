@@ -1,10 +1,6 @@
-import { validateApiKey, generateApiKey, hashApiKey } from "./auth";
-import { prisma } from "../config/database";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import { AppError } from "./errorHandler";
-import type { AuthRequest } from "./auth";
-import type { Response, NextFunction } from "express";
+const mockConfig = { adminApiKey: undefined as string | undefined };
+
+jest.mock("../config/env", () => ({ config: mockConfig }));
 
 jest.mock("../config/database", () => ({
   prisma: {
@@ -29,6 +25,14 @@ jest.mock("bcrypt", () => ({
   compare: jest.fn(),
   hash: jest.fn(),
 }));
+
+import { validateApiKey, generateApiKey, hashApiKey, validateAdminKey } from "./auth";
+import { prisma } from "../config/database";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { AppError } from "./errorHandler";
+import type { AuthRequest } from "./auth";
+import type { Request, Response, NextFunction } from "express";
 
 const VALID_KEY = "acbu_" + "a".repeat(12) + "_" + "b".repeat(64);
 const VALID_KEY2 = "acbu_" + "c".repeat(12) + "_" + "d".repeat(64);
@@ -204,6 +208,50 @@ describe("auth middleware", () => {
       expect(prisma.apiKey.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: "key-1" } }),
       );
+    });
+  });
+
+  describe("validateAdminKey", () => {
+    const makeAdminReq = (adminKey?: string): Request =>
+      ({ headers: adminKey ? { "x-admin-key": adminKey } : {} }) as Request;
+
+    it("returns 503 when ADMIN_API_KEY is not configured", () => {
+      mockConfig.adminApiKey = undefined;
+      validateAdminKey(makeAdminReq("anything"), mockRes, mockNext);
+      const err = (mockNext as jest.Mock).mock.calls[0][0] as AppError;
+      expect(err).toBeInstanceOf(AppError);
+      expect(err.statusCode).toBe(503);
+    });
+
+    it("returns 401 when no x-admin-key header is provided", () => {
+      mockConfig.adminApiKey = "secret-key";
+      validateAdminKey(makeAdminReq(), mockRes, mockNext);
+      const err = (mockNext as jest.Mock).mock.calls[0][0] as AppError;
+      expect(err.statusCode).toBe(401);
+    });
+
+    it("returns 401 when x-admin-key header is wrong", () => {
+      mockConfig.adminApiKey = "secret-key";
+      validateAdminKey(makeAdminReq("wrong-key"), mockRes, mockNext);
+      const err = (mockNext as jest.Mock).mock.calls[0][0] as AppError;
+      expect(err.statusCode).toBe(401);
+    });
+
+    it("returns 401 when x-admin-key has a different length (timing-safe compare edge)", () => {
+      mockConfig.adminApiKey = "secret-key";
+      validateAdminKey(
+        makeAdminReq("a-much-longer-key-than-expected"),
+        mockRes,
+        mockNext,
+      );
+      const err = (mockNext as jest.Mock).mock.calls[0][0] as AppError;
+      expect(err.statusCode).toBe(401);
+    });
+
+    it("calls next() with no error when key matches", () => {
+      mockConfig.adminApiKey = "secret-key";
+      validateAdminKey(makeAdminReq("secret-key"), mockRes, mockNext);
+      expect(mockNext).toHaveBeenCalledWith();
     });
   });
 

@@ -394,6 +394,17 @@ export const authRateLimiter = createRateLimiter(
 );
 
 /**
+ * Rate limiter for admin-only endpoints (e.g. /v1/admin/weight-drift-audits).
+ * Tighter than the standard limiter since admin actions are sensitive.
+ */
+export const adminRateLimiter = createRateLimiter(
+  config.adminRateLimitWindowMs,
+  config.adminRateLimitMaxRequests,
+  "ip",
+  "admin",
+);
+
+/**
  * Per-user/IP rate limiter for sensitive auth endpoints: 2FA verify, passcode reset.
  * Fixes #269 — brute-force of 2FA tokens and passcodes is possible at line speed
  * when only an IP-based limiter is applied.

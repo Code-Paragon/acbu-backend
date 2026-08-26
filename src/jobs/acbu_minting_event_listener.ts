@@ -1,10 +1,7 @@
 /**
  * Listens for MintEvent (contract_credited) on acbu_minting contract and enqueues USDC_CONVERSION jobs.
  */
-import {
-  eventListener,
-  ContractEvent,
-} from "../services/stellar/eventListener";
+import { eventListener, ContractEvent } from "../services/stellar/eventListener";
 import { getContractAddresses } from "../config/contracts";
 import { enqueueUsdcConversion } from "./usdcConversionJob";
 import { logger } from "../config/logger";
@@ -19,9 +16,7 @@ function parseAmountFromEffect(data: Record<string, unknown>): string | null {
   return null;
 }
 
-function parseRecipientFromEffect(
-  data: Record<string, unknown>,
-): string | null {
+function parseRecipientFromEffect(data: Record<string, unknown>): string | null {
   const account = data.account ?? data.recipient ?? data.to;
   if (typeof account === "string" && account.length === 56) return account;
   return null;
@@ -45,9 +40,7 @@ function parseTxHashFromEffect(data: Record<string, unknown>): string | null {
 /**
  * Find a pending mint Transaction by blockchain tx hash (set by API after invoke).
  */
-async function findTransactionByBlockchainHash(
-  txHash: string,
-): Promise<string | null> {
+async function findTransactionByBlockchainHash(txHash: string): Promise<string | null> {
   const tx = await prisma.transaction.findFirst({
     where: {
       type: "mint",
@@ -85,12 +78,9 @@ export async function startMintEventListener(): Promise<void> {
     }
 
     const rawTxHash =
-      parseTxHashFromEffect(data) ??
-      (event.data as Record<string, unknown> | undefined)?.id;
+      parseTxHashFromEffect(data) ?? (event.data as Record<string, unknown> | undefined)?.id;
     const txHash: string =
-      typeof rawTxHash === "string"
-        ? rawTxHash
-        : `effect-${event.ledger}-${Date.now()}`;
+      typeof rawTxHash === "string" ? rawTxHash : `effect-${event.ledger}-${Date.now()}`;
     let transactionId: string | null = null;
     if (txHash.length === 64) {
       transactionId = await findTransactionByBlockchainHash(txHash);
@@ -104,11 +94,7 @@ export async function startMintEventListener(): Promise<void> {
     });
   };
 
-  eventListener.listenToContractEvents(
-    mintingContractId,
-    MINT_EFFECT_TYPES,
-    handler,
-  );
+  eventListener.listenToContractEvents(mintingContractId, MINT_EFFECT_TYPES, handler);
   logger.info("Mint event listener registered", {
     contractId: mintingContractId,
     effectTypes: MINT_EFFECT_TYPES,

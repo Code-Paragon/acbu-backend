@@ -76,7 +76,6 @@ export class WeightDriftAuditService {
         const recommendation = this.generateRecommendation(
           currency,
           policyWeight,
-          actualWeight,
           driftPercent,
         );
 
@@ -324,7 +323,6 @@ export class WeightDriftAuditService {
   private generateRecommendation(
     currency: string,
     policyWeight: number,
-    actualWeight: number,
     driftPercent: number,
   ): string {
     if (Math.abs(driftPercent) <= 0.5) {

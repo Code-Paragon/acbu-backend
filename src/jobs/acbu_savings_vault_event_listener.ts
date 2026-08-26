@@ -1,26 +1,17 @@
 /**
  * Listens for events on acbu_savings_vault contract and enqueues ACBU_SAVINGS_VAULT_EVENTS.
  */
-import {
-  eventListener,
-  ContractEvent,
-} from "../services/stellar/eventListener";
+import { eventListener, ContractEvent } from "../services/stellar/eventListener";
 import { getContractAddresses } from "../config/contracts";
 import { logger } from "../config/logger";
 import { savingsVaultEventProducer } from "./producers";
 
-const SAVINGS_VAULT_EFFECT_TYPES = [
-  "contract_credited",
-  "contract_debited",
-  "contract_effect",
-];
+const SAVINGS_VAULT_EFFECT_TYPES = ["contract_credited", "contract_debited", "contract_effect"];
 
 export async function startSavingsVaultEventListener(): Promise<void> {
   const contractId = getContractAddresses().savingsVault;
   if (!contractId) {
-    logger.info(
-      "Savings vault event listener skipped: no CONTRACT_SAVINGS_VAULT configured",
-    );
+    logger.info("Savings vault event listener skipped: no CONTRACT_SAVINGS_VAULT configured");
     return;
   }
 
@@ -49,11 +40,7 @@ export async function startSavingsVaultEventListener(): Promise<void> {
     }
   };
 
-  eventListener.listenToContractEvents(
-    contractId,
-    SAVINGS_VAULT_EFFECT_TYPES,
-    handler,
-  );
+  eventListener.listenToContractEvents(contractId, SAVINGS_VAULT_EFFECT_TYPES, handler);
   logger.info("Savings vault event listener registered with validation", {
     contractId,
     effectTypes: SAVINGS_VAULT_EFFECT_TYPES,

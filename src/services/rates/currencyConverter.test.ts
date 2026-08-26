@@ -3,10 +3,7 @@
  * Tests the high-precision conversion logic from local currency to USD
  */
 
-import {
-  convertLocalToUsd,
-  convertLocalToUsdWithPrecision,
-} from "./currencyConverter";
+import { convertLocalToUsd, convertLocalToUsdWithPrecision } from "./currencyConverter";
 import { prisma } from "../../config/database";
 import { Decimal } from "@prisma/client/runtime/library";
 
@@ -150,9 +147,7 @@ describe("currencyConverter", () => {
 
       await expect(convertLocalToUsd(100000, "NGN")).rejects.toThrow(
         expect.objectContaining({
-          message: expect.stringContaining(
-            "Exchange rate for NGN is not available or invalid",
-          ),
+          message: expect.stringContaining("Exchange rate for NGN is not available or invalid"),
           statusCode: 503,
         }),
       );
@@ -205,6 +200,30 @@ describe("currencyConverter", () => {
       });
 
       const result = await convertLocalToUsd(100000.5, "NGN");
+
+      expect(result).toBeCloseTo(50.00025, 5);
+    });
+
+    it("should handle string inputs as golden test", async () => {
+      (prisma.acbuRate.findFirst as jest.Mock).mockResolvedValue({
+        acbuNgn: new Decimal("1000.00"),
+        acbuUsd: new Decimal("0.50"),
+        timestamp: new Date(),
+      });
+
+      const result = await convertLocalToUsd("100000.5", "NGN");
+
+      expect(result).toBeCloseTo(50.00025, 5);
+    });
+
+    it("should handle Decimal inputs as golden test", async () => {
+      (prisma.acbuRate.findFirst as jest.Mock).mockResolvedValue({
+        acbuNgn: new Decimal("1000.00"),
+        acbuUsd: new Decimal("0.50"),
+        timestamp: new Date(),
+      });
+
+      const result = await convertLocalToUsd(new Decimal("100000.5"), "NGN");
 
       expect(result).toBeCloseTo(50.00025, 5);
     });
@@ -262,9 +281,7 @@ describe("currencyConverter", () => {
     it("should throw same errors as convertLocalToUsd", async () => {
       (prisma.acbuRate.findFirst as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        convertLocalToUsdWithPrecision(100000, "NGN"),
-      ).rejects.toThrow(
+      await expect(convertLocalToUsdWithPrecision(100000, "NGN")).rejects.toThrow(
         expect.objectContaining({
           message: expect.stringContaining("Exchange rates not yet available"),
           statusCode: 503,

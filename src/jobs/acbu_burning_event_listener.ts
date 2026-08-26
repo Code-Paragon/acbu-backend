@@ -6,6 +6,10 @@ import { getContractAddresses } from "../config/contracts";
 import { enqueueWithdrawalProcessing } from "./withdrawalProcessingJob";
 import { logger } from "../config/logger";
 import { prisma } from "../config/database";
+import {
+  resolveTxHash,
+  verifyTxHashOnChain,
+} from "../services/stellar/txHashValidation";
 
 const BURN_EFFECT_TYPES = ["contract_debited", "contract_effect"];
 
@@ -52,12 +56,13 @@ export async function startBurnEventListener(): Promise<void> {
       });
       return;
     }
-    const transactionId = await findTransactionByBlockchainHash(txHash);
+
+    const transactionId = await findTransactionByBlockchainHash(resolvedHash);
     if (!transactionId) {
       logger.debug("Burn event: no pending/processing burn transaction for hash", { txHash });
       return;
     }
-    await enqueueWithdrawalProcessing({ transactionId, txHash });
+    await enqueueWithdrawalProcessing({ transactionId, txHash: resolvedHash });
   };
 
   eventListener.listenToContractEvents(burningContractId, BURN_EFFECT_TYPES, handler);

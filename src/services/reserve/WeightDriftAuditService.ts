@@ -13,7 +13,7 @@ import { prisma } from "../../config/database";
 import { logger } from "../../config/logger";
 import { basketService } from "../basket";
 import { reserveTracker } from "../reserve/ReserveTracker";
-import { auditService } from "../audit";
+import { logAudit } from "../audit";
 import { Decimal } from "@prisma/client/runtime/library";
 
 const DRIFT_THRESHOLD_PCT = 2; // Trigger audit if drift exceeds 2%
@@ -148,7 +148,7 @@ export class WeightDriftAuditService {
       }
 
       // Emit audit log for audit creation
-      await auditService.logAuditEntry({
+      await logAudit({
         eventType: "WEIGHT_DRIFT_AUDIT_CREATED",
         entityType: "WeightDriftAudit",
         entityId: auditRecord.id,
@@ -208,7 +208,7 @@ export class WeightDriftAuditService {
       });
 
       // Emit audit log for approval
-      await auditService.logAuditEntry({
+      await logAudit({
         eventType: "WEIGHT_DRIFT_AUDIT_APPROVED",
         entityType: "WeightDriftAudit",
         entityId: auditId,
@@ -258,7 +258,7 @@ export class WeightDriftAuditService {
       });
 
       // Emit audit log for rejection
-      await auditService.logAuditEntry({
+      await logAudit({
         eventType: "WEIGHT_DRIFT_AUDIT_REJECTED",
         entityType: "WeightDriftAudit",
         entityId: auditId,

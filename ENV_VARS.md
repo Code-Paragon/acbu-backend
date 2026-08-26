@@ -70,6 +70,8 @@ This file documents the environment variables required by the ACBU backend and t
 - `RATE_LIMIT_MAX_REQUESTS` - defaults to `100`
 - `AUTH_RATE_LIMIT_WINDOW_MS` - defaults to `900000`
 - `AUTH_RATE_LIMIT_MAX_REQUESTS` - defaults to `10`
+- `ADMIN_RATE_LIMIT_WINDOW_MS` - defaults to `60000`
+- `ADMIN_RATE_LIMIT_MAX_REQUESTS` - defaults to `30`
 - `RATE_LIMIT_FALLBACK_MAX_REQUESTS` - defaults to `20`
 - `RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD` - defaults to `5`
 - `RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS` - defaults to `60000`

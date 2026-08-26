@@ -81,10 +81,7 @@ export async function convertLocalToUsd(
   const latestRate = await getLatestAcbuRate().catch(() => null);
 
   if (!latestRate) {
-    throw new AppError(
-      "Exchange rates not yet available. Please try again in a moment.",
-      503,
-    );
+    throw new AppError("Exchange rates not yet available. Please try again in a moment.", 503);
   }
 
   // Get the rate field name for this currency
@@ -111,10 +108,7 @@ export async function convertLocalToUsd(
   const acbuUsdRate = new Decimal(latestRate.acbuUsd);
 
   if (acbuUsdRate.toNumber() <= 0) {
-    throw new AppError(
-      "USD conversion rate is invalid. Cannot process deposit at this time.",
-      503,
-    );
+    throw new AppError("USD conversion rate is invalid. Cannot process deposit at this time.", 503);
   }
 
   // Convert ACBU to USD
@@ -152,10 +146,7 @@ export async function convertLocalToUsdWithPrecision(
   const latestRate = await getLatestAcbuRate().catch(() => null);
 
   if (!latestRate) {
-    throw new AppError(
-      "Exchange rates not yet available. Please try again in a moment.",
-      503,
-    );
+    throw new AppError("Exchange rates not yet available. Please try again in a moment.", 503);
   }
 
   // Get the rate field name for this currency
@@ -182,10 +173,7 @@ export async function convertLocalToUsdWithPrecision(
   const acbuUsdRate = new Decimal(latestRate.acbuUsd);
 
   if (acbuUsdRate.toNumber() <= 0) {
-    throw new AppError(
-      "USD conversion rate is invalid. Cannot process deposit at this time.",
-      503,
-    );
+    throw new AppError("USD conversion rate is invalid. Cannot process deposit at this time.", 503);
   }
 
   // Convert ACBU to USD

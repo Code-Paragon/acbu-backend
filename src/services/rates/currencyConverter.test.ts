@@ -3,10 +3,7 @@
  * Tests the high-precision conversion logic from local currency to USD
  */
 
-import {
-  convertLocalToUsd,
-  convertLocalToUsdWithPrecision,
-} from "./currencyConverter";
+import { convertLocalToUsd, convertLocalToUsdWithPrecision } from "./currencyConverter";
 import { prisma } from "../../config/database";
 import { Decimal } from "@prisma/client/runtime/library";
 
@@ -150,9 +147,7 @@ describe("currencyConverter", () => {
 
       await expect(convertLocalToUsd(100000, "NGN")).rejects.toThrow(
         expect.objectContaining({
-          message: expect.stringContaining(
-            "Exchange rate for NGN is not available or invalid",
-          ),
+          message: expect.stringContaining("Exchange rate for NGN is not available or invalid"),
           statusCode: 503,
         }),
       );
@@ -286,9 +281,7 @@ describe("currencyConverter", () => {
     it("should throw same errors as convertLocalToUsd", async () => {
       (prisma.acbuRate.findFirst as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        convertLocalToUsdWithPrecision(100000, "NGN"),
-      ).rejects.toThrow(
+      await expect(convertLocalToUsdWithPrecision(100000, "NGN")).rejects.toThrow(
         expect.objectContaining({
           message: expect.stringContaining("Exchange rates not yet available"),
           statusCode: 503,

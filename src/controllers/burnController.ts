@@ -66,9 +66,7 @@ function respondFromExistingBurnTx(
     local_amount: toNullableStringDecimal(tx.localAmount),
     currency: tx.localCurrency,
     fee: toNullableStringDecimal(tx.fee),
-    rate:
-      tx.rateSnapshot ??
-      ({ acbu_ngn: null, timestamp: tx.createdAt.toISOString() } as const),
+    rate: tx.rateSnapshot ?? ({ acbu_ngn: null, timestamp: tx.createdAt.toISOString() } as const),
     status: tx.status,
     estimated_completion: null,
     blockchain_tx_hash: blockchainTxHash ?? undefined,
@@ -98,18 +96,13 @@ export const bodySchema = z.object({
     .optional(),
 });
 
-export async function burnAcbu(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function burnAcbu(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) {
       throw new AppError("Invalid request", 400, "VALIDATION_ERROR", parsed.error.flatten());
     }
-    const { acbu_amount, currency, recipient_account, blockchain_tx_hash } =
-      parsed.data;
+    const { acbu_amount, currency, recipient_account, blockchain_tx_hash } = parsed.data;
 
     const idempotencyKey = extractIdempotencyKey(req);
     if (idempotencyKey) {
@@ -152,11 +145,7 @@ export async function burnAcbu(
     const rateKey =
       `acbu${currency.charAt(0).toUpperCase() + currency.slice(1).toLowerCase()}` as keyof typeof acbuRateRecord;
     const acbuPerLocal = acbuRateRecord[rateKey];
-    if (
-      !acbuPerLocal ||
-      typeof acbuPerLocal !== "object" ||
-      !("toNumber" in acbuPerLocal)
-    ) {
+    if (!acbuPerLocal || typeof acbuPerLocal !== "object" || !("toNumber" in acbuPerLocal)) {
       throw new Error(`Rate not found for currency ${currency}`);
     }
     const acbuPerLocalDecimal = new Decimal(acbuPerLocal.toNumber());
@@ -202,8 +191,7 @@ export async function burnAcbu(
             acbu_ngn: null,
             timestamp: new Date().toISOString(),
           },
-          blockchainTxHash:
-            burningEnabled && blockchain_tx_hash ? blockchain_tx_hash : undefined,
+          blockchainTxHash: burningEnabled && blockchain_tx_hash ? blockchain_tx_hash : undefined,
         },
       });
     } catch (createError) {

@@ -119,146 +119,8 @@ const envSchema = z.object({
     .pipe(z.enum(["true", "false"]))
     .default("false"),
 
-  // S3 & KYC document storage (B-062)
-  S3_SCAN_WEBHOOK_SECRET: z.string().trim().default("change-me-in-production"),
-  S3_BUCKET: z.string().trim().min(1).optional(),
-  S3_ENDPOINT: z.string().default(""),
-  AWS_REGION: z.string().optional(),
-  S3_REGION: z.string().optional(),
-  AWS_ACCESS_KEY_ID: z.string().default(""),
-  S3_ACCESS_KEY_ID: z.string().default(""),
-  AWS_SECRET_ACCESS_KEY: z.string().default(""),
-  S3_SECRET_ACCESS_KEY: z.string().default(""),
-  S3_UPLOAD_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
-  S3_DOWNLOAD_URL_TTL_SECONDS: z.coerce.number().int().positive().default(300),
-
-  // Fintech partner credentials & webhooks
-  FLUTTERWAVE_PUBLIC_KEY: z.string().optional(),
-  FLUTTERWAVE_SECRET_KEY: z.string().optional(),
-  FLUTTERWAVE_ENCRYPTION_KEY: z.string().optional(),
-  FLUTTERWAVE_WEBHOOK_SECRET: z.string().optional(),
-  FLUTTERWAVE_BASE_URL: z.string().default("https://api.flutterwave.com/v3"),
-  PAYSTACK_SECRET_KEY: z.string().optional(),
-  PAYSTACK_BASE_URL: z.string().default("https://api.paystack.co"),
-  BILLS_WEBHOOK_SECRET: z.string().optional(),
-  MTN_MOMO_SUBSCRIPTION_KEY: z.string().optional(),
-  MTN_MOMO_API_USER_ID: z.string().optional(),
-  MTN_MOMO_API_KEY: z.string().optional(),
-  MTN_MOMO_BASE_URL: z.string().optional(),
-  MTN_MOMO_TARGET_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
-  FINTECH_CURRENCY_PROVIDERS: z.string().optional(),
-
-  // Redis cache (Sentinel / standalone)
-  REDIS_URL: z.string().optional(),
-  REDIS_SENTINELS: z.string().optional(),
-  REDIS_SENTINEL_NAME: z.string().default(""),
-  REDIS_PASSWORD: z.string().default(""),
-  REDIS_MAX_RETRIES_PER_REQUEST: z.coerce.number().int().default(3),
-  REDIS_READONLY_RETRY_ATTEMPTS: z.coerce.number().int().default(3),
-  REDIS_READONLY_RETRY_DELAY_MS: z.coerce.number().int().default(100),
-
-  // Stellar & Soroban
-  STELLAR_NETWORK: z.string().default("testnet"),
-  STELLAR_HORIZON_URL: z.string().default("https://horizon-testnet.stellar.org"),
-  STELLAR_SOROBAN_RPC_URL: z.string().optional(),
-  STELLAR_SECRET_KEY: z.string().default(""),
-  STELLAR_NATIVE_ASSET_CODE: z.string().optional(),
-  TESTNET_CUSTODIAL_BOOTSTRAP: z.string().default(""),
-  WALLET_ACTIVATION_STRATEGY: z
-    .enum(["create_account_native", "disabled"])
-    .default("create_account_native"),
-  WALLET_ACTIVATION_AMOUNT: z.string().optional(),
-  WALLET_ACTIVATION_NATIVE: z.string().optional(),
-  WALLET_ACTIVATION_XLM: z.string().optional(),
-  STELLAR_MIN_BALANCE: z.string().optional(),
-  STELLAR_BASE_FEE_STROOPS: z.coerce.number().int().default(100),
-  STELLAR_USE_DYNAMIC_FEES: z
-    .string()
-    .toLowerCase()
-    .pipe(z.enum(["true", "false"]))
-    .default("false"),
-  STELLAR_SOROBAN_MAX_FEE_STROOPS: z.coerce.number().int().default(10000000),
-  STELLAR_SOROBAN_MIN_FEE_STROOPS: z.coerce.number().int().default(5000),
-  USDC_ASSET_CODE_TESTNET: z.string().default("USDC"),
-  USDC_ASSET_CODE_MAINNET: z.string().default("USDC"),
-  USDC_XLM_SLIPPAGE_BPS: z.coerce.number().int().default(50),
-
-  // Bulk transfer (#441)
   BULK_TRANSFER_CHUNK_SIZE: z.coerce.number().int().positive().default(100),
   BULK_TRANSFER_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(10485760),
-
-  // Smart contracts
-  CONTRACT_ORACLE: z.string().optional(),
-  CONTRACT_RESERVE_TRACKER: z.string().optional(),
-  CONTRACT_MINTING: z.string().optional(),
-  CONTRACT_BURNING: z.string().optional(),
-  CONTRACT_SAVINGS_VAULT: z.string().optional(),
-  CONTRACT_LENDING_POOL: z.string().optional(),
-  CONTRACT_ESCROW: z.string().optional(),
-
-  // Oracle (40/40/20: central bank, fintech, forex)
-  ORACLE_UPDATE_INTERVAL_HOURS: z.coerce.number().int().positive().default(6),
-  ORACLE_EMERGENCY_THRESHOLD: z.coerce.number().positive().default(0.05),
-  ORACLE_MAX_DEVIATION_PER_UPDATE: z.coerce.number().positive().default(0.05),
-  ORACLE_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().positive().default(0.1),
-  EXCHANGERATE_API_BASE_URL: z.string().default("https://v6.exchangerate-api.com/v6"),
-  EXCHANGERATE_API_KEY: z.string().default(""),
-  CURRENCY_CENTRAL_BANK_URLS: z.string().optional(),
-
-  // Reserve
-  RESERVE_MIN_RATIO: z.coerce.number().positive().default(1.02),
-  RESERVE_TARGET_RATIO: z.coerce.number().positive().default(1.05),
-  RESERVE_ALERT_THRESHOLD: z.coerce.number().positive().default(1.02),
-  RESERVE_DRIFT_THRESHOLD_PCT: z.coerce.number().positive().default(1),
-
-  // Notifications (email / SMS)
-  NOTIFICATION_EMAIL_PROVIDER: z.enum(["sendgrid", "ses", "smtp", "log"]).default("log"),
-  NOTIFICATION_FROM_EMAIL: z.string().default("noreply@acbu.io"),
-  NOTIFICATION_ALERT_EMAIL: z.string().default(""),
-  SMTP_HOST: z.string().default(""),
-  SMTP_PORT: z.coerce.number().int().positive().default(587),
-  SMTP_SECURE: z
-    .string()
-    .toLowerCase()
-    .pipe(z.enum(["true", "false"]))
-    .default("false"),
-  SMTP_USER: z.string().default(""),
-  SMTP_PASS: z.string().default(""),
-  SMTP_MAX_CONNECTIONS: z.coerce.number().int().positive().default(5),
-  SMTP_MAX_MESSAGES: z.coerce.number().int().positive().default(100),
-  SENDGRID_API_KEY: z.string().default(""),
-  AWS_SES_REGION: z.string().optional(),
-  NOTIFICATION_SMS_PROVIDER: z.enum(["twilio", "africas_talking", "log"]).default("log"),
-  TWILIO_ACCOUNT_SID: z.string().default(""),
-  TWILIO_AUTH_TOKEN: z.string().default(""),
-  TWILIO_FROM_NUMBER: z.string().default(""),
-  AFRICAS_TALKING_API_KEY: z.string().default(""),
-  AFRICAS_TALKING_USERNAME: z.string().default(""),
-
-  // Outbound webhooks
-  WEBHOOK_URL: z.string().default(""),
-  WEBHOOK_SECRET: z.string().default(""),
-
-  // Limits
-  LIMIT_RETAIL_DEPOSIT_DAILY_USD: z.coerce.number().int().positive().default(5000),
-  LIMIT_RETAIL_DEPOSIT_MONTHLY_USD: z.coerce.number().int().positive().default(50000),
-  LIMIT_RETAIL_WITHDRAWAL_DAILY_USD: z.coerce.number().int().positive().default(10000),
-  LIMIT_RETAIL_WITHDRAWAL_MONTHLY_USD: z.coerce.number().int().positive().default(80000),
-  LIMIT_BUSINESS_DEPOSIT_DAILY_USD: z.coerce.number().int().positive().default(50000),
-  LIMIT_BUSINESS_DEPOSIT_MONTHLY_USD: z.coerce.number().int().positive().default(500000),
-  LIMIT_BUSINESS_WITHDRAWAL_DAILY_USD: z.coerce.number().int().positive().default(100000),
-  LIMIT_BUSINESS_WITHDRAWAL_MONTHLY_USD: z.coerce.number().int().positive().default(800000),
-  LIMIT_GOV_DEPOSIT_DAILY_USD: z.coerce.number().int().positive().default(500000),
-  LIMIT_GOV_DEPOSIT_MONTHLY_USD: z.coerce.number().int().positive().default(5000000),
-  LIMIT_GOV_WITHDRAWAL_DAILY_USD: z.coerce.number().int().positive().default(500000),
-  LIMIT_GOV_WITHDRAWAL_MONTHLY_USD: z.coerce.number().int().positive().default(4000000),
-  LIMIT_CIRCUIT_BREAKER_RESERVE_WEIGHT_PCT: z.coerce.number().positive().default(10),
-  LIMIT_CIRCUIT_BREAKER_MIN_RATIO: z.coerce.number().positive().default(1.02),
-
-  // Auth Security
-  AUTH_BRUTE_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
-  AUTH_BRUTE_LOCKOUT_MS: z.coerce.number().int().positive().default(900000),
-  CAPTCHA_SECRET: z.string().default(""),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -366,8 +228,8 @@ if (parsed.data.NODE_ENV === "production") {
   if (!parsed.data.FLUTTERWAVE_SECRET_KEY || isPlaceholderKey(parsed.data.FLUTTERWAVE_SECRET_KEY))
     invalidFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
   if (
-    !parsed.data.FLUTTERWAVE_WEBHOOK_SECRET ||
-    isPlaceholderKey(parsed.data.FLUTTERWAVE_WEBHOOK_SECRET)
+    !process.env.FLUTTERWAVE_WEBHOOK_SECRET ||
+    isPlaceholderKey(process.env.FLUTTERWAVE_WEBHOOK_SECRET)
   )
     invalidFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
   if (!parsed.data.PAYSTACK_SECRET_KEY || isPlaceholderKey(parsed.data.PAYSTACK_SECRET_KEY))
@@ -375,8 +237,8 @@ if (parsed.data.NODE_ENV === "production") {
   if (!parsed.data.BILLS_WEBHOOK_SECRET || isPlaceholderKey(parsed.data.BILLS_WEBHOOK_SECRET))
     invalidFintechKeys.push("BILLS_WEBHOOK_SECRET");
   if (
-    !parsed.data.MTN_MOMO_SUBSCRIPTION_KEY ||
-    isPlaceholderKey(parsed.data.MTN_MOMO_SUBSCRIPTION_KEY)
+    !process.env.MTN_MOMO_SUBSCRIPTION_KEY ||
+    isPlaceholderKey(process.env.MTN_MOMO_SUBSCRIPTION_KEY)
   )
     invalidFintechKeys.push("MTN_MOMO_SUBSCRIPTION_KEY");
   if (!parsed.data.MTN_MOMO_API_USER_ID || isPlaceholderKey(parsed.data.MTN_MOMO_API_USER_ID))
@@ -766,5 +628,10 @@ export const config = {
     leakThresholdPct: env.MEMORY_LEAK_THRESHOLD_PCT,
     checkIntervalMs: env.MEMORY_CHECK_INTERVAL_MS,
     heapDumpDir: env.HEAP_DUMP_DIR,
+  },
+
+  bulkTransfer: {
+    chunkSize: env.BULK_TRANSFER_CHUNK_SIZE,
+    maxFileSizeBytes: env.BULK_TRANSFER_MAX_FILE_SIZE_BYTES,
   },
 };

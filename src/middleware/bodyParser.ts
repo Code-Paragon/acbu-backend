@@ -7,11 +7,7 @@ import type { NextFunction, Request, Response } from "express";
  *
  * Fixes #449.
  */
-export function validateContentLength(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
+export function validateContentLength(req: Request, res: Response, next: NextFunction): void {
   const declared = req.headers["content-length"];
 
   // No header — nothing to validate; downstream parsers handle it.

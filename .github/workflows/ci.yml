@@ -149,6 +149,7 @@ jobs:
     # service container as soon as the job finishes, so every run starts
     # from an empty database and full isolation is guaranteed.
 
+
     env:
       DATABASE_URL: postgresql://acbu_ci:acbu_ci_pw@localhost:5432/acbu_ci
 
@@ -216,3 +217,48 @@ jobs:
           --to-url "$DATABASE_URL"
           --shadow-database-url "postgresql://acbu_ci:acbu_ci_pw@localhost:5432/acbu_ci_shadow"
           --exit-code
+
+  docker-build-publish:
+    name: Build and Publish Docker Image
+    runs-on: ubuntu-latest
+    needs: build
+    # Only publish images on pushes to the main/dev branches, not on PRs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/develop')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Output image digest
+        run: echo "Image pushed with digest ${{ steps.build-and-push.outputs.digest }}"

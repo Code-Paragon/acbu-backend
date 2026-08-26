@@ -124,12 +124,18 @@ export async function convertLocalToUsd(
  *
  * @param localAmount - The amount in local currency (as Decimal string or number)
  * @param currency - The currency code (e.g., "NGN", "KES")
- * @returns Object with both number and Decimal representations
+ * @returns Object with both Decimal (primary) and number representations
  */
 export async function convertLocalToUsdWithPrecision(
   localAmount: string | number,
   currency: string,
 ): Promise<{
+  /** Primary high-precision USD amount — use this for audit logs and accounting. */
+  usdAmountDecimal: Decimal;
+  /**
+   * @deprecated Use `usdAmountDecimal` for accounting. This number field is kept for
+   * backwards compatibility but may lose precision on very large or high-decimal amounts.
+   */
   usdAmount: number;
   originalAmount: Decimal;
   acbuEquivalent: Decimal;
@@ -180,6 +186,7 @@ export async function convertLocalToUsdWithPrecision(
   const usdAmount = acbuAmount.mul(acbuUsdRate);
 
   return {
+    usdAmountDecimal: usdAmount,
     usdAmount: usdAmount.toNumber(),
     originalAmount: localAmountDecimal,
     acbuEquivalent: acbuAmount,

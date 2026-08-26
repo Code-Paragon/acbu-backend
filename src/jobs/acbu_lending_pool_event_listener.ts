@@ -1,26 +1,17 @@
 /**
  * Listens for events on acbu_lending_pool contract and enqueues ACBU_LENDING_POOL_EVENTS.
  */
-import {
-  eventListener,
-  ContractEvent,
-} from "../services/stellar/eventListener";
+import { eventListener, ContractEvent } from "../services/stellar/eventListener";
 import { getContractAddresses } from "../config/contracts";
 import { logger } from "../config/logger";
 import { lendingPoolEventProducer } from "./producers";
 
-const LENDING_POOL_EFFECT_TYPES = [
-  "contract_credited",
-  "contract_debited",
-  "contract_effect",
-];
+const LENDING_POOL_EFFECT_TYPES = ["contract_credited", "contract_debited", "contract_effect"];
 
 export async function startLendingPoolEventListener(): Promise<void> {
   const contractId = getContractAddresses().lendingPool;
   if (!contractId) {
-    logger.info(
-      "Lending pool event listener skipped: no CONTRACT_LENDING_POOL configured",
-    );
+    logger.info("Lending pool event listener skipped: no CONTRACT_LENDING_POOL configured");
     return;
   }
 
@@ -49,11 +40,7 @@ export async function startLendingPoolEventListener(): Promise<void> {
     }
   };
 
-  eventListener.listenToContractEvents(
-    contractId,
-    LENDING_POOL_EFFECT_TYPES,
-    handler,
-  );
+  eventListener.listenToContractEvents(contractId, LENDING_POOL_EFFECT_TYPES, handler);
   logger.info("Lending pool event listener registered with validation", {
     contractId,
     effectTypes: LENDING_POOL_EFFECT_TYPES,

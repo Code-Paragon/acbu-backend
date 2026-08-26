@@ -148,20 +148,6 @@ jobs:
     # Migrations never touch shared/staging databases — GitHub destroys the
     # service container as soon as the job finishes, so every run starts
     # from an empty database and full isolation is guaranteed.
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: acbu_ci
-          POSTGRES_PASSWORD: acbu_ci_pw
-          POSTGRES_DB: acbu_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U acbu_ci -d acbu_ci"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
 
     env:
       DATABASE_URL: postgresql://acbu_ci:acbu_ci_pw@localhost:5432/acbu_ci
@@ -172,6 +158,18 @@ jobs:
           # Fetch full history so the destructive-migration gate can diff
           # schema.prisma against the pull request base commit
           fetch-depth: 0
+
+      - name: Start local dev infrastructure
+        env:
+          POSTGRES_USER: acbu_ci
+          POSTGRES_PASSWORD: acbu_ci_pw
+          POSTGRES_DB: acbu_ci
+          MONGO_USER: acbu_ci
+          MONGO_PASSWORD: acbu_ci_pw
+          MONGO_DB: acbu_ci_cache
+          RABBITMQ_USER: acbu_ci
+          RABBITMQ_PASSWORD: acbu_ci_pw
+        run: docker compose up -d --wait
 
       - uses: pnpm/action-setup@v4
         with:

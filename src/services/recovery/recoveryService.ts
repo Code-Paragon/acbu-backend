@@ -112,7 +112,7 @@ export async function unlockApp(
   });
   if (!user || !user.passcodeHash) {
     logger.warn("Recovery: user not found or no passcode set", {
-      identifier: isEmail ? "***" : identifier.slice(0, 6) + "***",
+      identifier: "***",
     });
     throw new Error("User not found or recovery not enabled");
   }

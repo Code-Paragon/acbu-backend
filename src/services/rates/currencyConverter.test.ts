@@ -208,6 +208,30 @@ describe("currencyConverter", () => {
 
       expect(result).toBeCloseTo(50.00025, 5);
     });
+
+    it("should handle string inputs as golden test", async () => {
+      (prisma.acbuRate.findFirst as jest.Mock).mockResolvedValue({
+        acbuNgn: new Decimal("1000.00"),
+        acbuUsd: new Decimal("0.50"),
+        timestamp: new Date(),
+      });
+
+      const result = await convertLocalToUsd("100000.5", "NGN");
+
+      expect(result).toBeCloseTo(50.00025, 5);
+    });
+
+    it("should handle Decimal inputs as golden test", async () => {
+      (prisma.acbuRate.findFirst as jest.Mock).mockResolvedValue({
+        acbuNgn: new Decimal("1000.00"),
+        acbuUsd: new Decimal("0.50"),
+        timestamp: new Date(),
+      });
+
+      const result = await convertLocalToUsd(new Decimal("100000.5"), "NGN");
+
+      expect(result).toBeCloseTo(50.00025, 5);
+    });
   });
 
   describe("convertLocalToUsdWithPrecision", () => {

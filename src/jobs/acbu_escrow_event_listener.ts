@@ -1,20 +1,13 @@
 /**
  * Listens for events on acbu_escrow contract and enqueues ACBU_ESCROW_EVENTS.
  */
-import {
-  eventListener,
-  ContractEvent,
-} from "../services/stellar/eventListener";
+import { eventListener, ContractEvent } from "../services/stellar/eventListener";
 import { getContractAddresses } from "../config/contracts";
 import { logger } from "../config/logger";
 import { escrowEventProducer } from "./producers";
 import { extractAndValidateTxHash } from "../services/stellar/txHashValidation";
 
-const ESCROW_EFFECT_TYPES = [
-  "contract_credited",
-  "contract_debited",
-  "contract_effect",
-];
+const ESCROW_EFFECT_TYPES = ["contract_credited", "contract_debited", "contract_effect"];
 
 function sanitizeEventData(
   data: Record<string, unknown>,
@@ -76,11 +69,7 @@ export async function startEscrowEventListener(): Promise<void> {
     }
   };
 
-  eventListener.listenToContractEvents(
-    contractId,
-    ESCROW_EFFECT_TYPES,
-    handler,
-  );
+  eventListener.listenToContractEvents(contractId, ESCROW_EFFECT_TYPES, handler);
   logger.info("Escrow event listener registered with validation", {
     contractId,
     effectTypes: ESCROW_EFFECT_TYPES,

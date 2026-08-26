@@ -154,6 +154,12 @@ This file documents the environment variables required by the ACBU backend and t
 - `AWS_SES_REGION`
 - `NOTIFICATION_SMS_PROVIDER` - defaults to `log`
 - `NOTIFICATION_ALERT_EMAIL`
+- `ADMIN_NOTIFICATION_EMAIL`
+  - Optional. Comma-separated list of email addresses that receive the weekly
+    weight-drift audit report (`src/jobs/weightDriftAuditJob.ts`).
+  - Example: `admin@example.com` or `admin@example.com,ops@example.com`
+  - When absent or empty, the audit job still runs and persists the audit
+    record — it simply skips sending the email notification.
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_FROM_NUMBER`

@@ -126,7 +126,7 @@ export class WeightDriftAuditService {
    * Store audit report in DB with pending status.
    */
   async createAudit(report: WeightDriftReport, createdBy: string): Promise<WeightDriftReport> {
-    const tx = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const tx = await prisma.$transaction(async (tx) => {
       // Create main audit record
       const auditRecord = await tx.weightDriftAudit.create({
         data: {
@@ -348,10 +348,7 @@ export class WeightDriftAuditService {
   }
 
   // Helper: Format audit record for API response
-  private formatAuditReport(
-    audit: WeightDriftAuditRow,
-    currencies: WeightDriftCurrencyRow[],
-  ): WeightDriftReport {
+  private formatAuditReport(audit: any, currencies: any[]): WeightDriftReport {
     return {
       auditId: audit.id,
       auditPeriodStart: audit.auditPeriodStart,

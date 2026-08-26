@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // ===================== SHARED BASE SCHEMAS =====================
 
@@ -15,16 +15,18 @@ export type BaseEvent = z.infer<typeof BaseEventSchema>;
 // ===================== ESCROW EVENT SCHEMA =====================
 
 export const EscrowEventSchema = BaseEventSchema.extend({
-  type: z.enum(['contract_credited', 'contract_debited', 'contract_effect']),
-  data: z.object({
-    amount: z.string().optional(),
-    account: z.string().optional(),
-    recipient: z.string().optional(),
-    to: z.string().optional(),
-    transaction_hash: z.string().optional(),
-    transaction_id: z.string().optional(),
-    tx_hash: z.string().optional(),
-  }).passthrough(),
+  type: z.enum(["contract_credited", "contract_debited", "contract_effect"]),
+  data: z
+    .object({
+      amount: z.string().optional(),
+      account: z.string().optional(),
+      recipient: z.string().optional(),
+      to: z.string().optional(),
+      transaction_hash: z.string().optional(),
+      transaction_id: z.string().optional(),
+      tx_hash: z.string().optional(),
+    })
+    .passthrough(),
 });
 
 export type EscrowEvent = z.infer<typeof EscrowEventSchema>;
@@ -32,14 +34,16 @@ export type EscrowEvent = z.infer<typeof EscrowEventSchema>;
 // ===================== LENDING POOL EVENT SCHEMA =====================
 
 export const LendingPoolEventSchema = BaseEventSchema.extend({
-  type: z.enum(['contract_credited', 'contract_debited', 'contract_effect']),
-  data: z.object({
-    amount: z.string().optional(),
-    account: z.string().optional(),
-    recipient: z.string().optional(),
-    to: z.string().optional(),
-    transaction_hash: z.string().optional(),
-  }).passthrough(),
+  type: z.enum(["contract_credited", "contract_debited", "contract_effect"]),
+  data: z
+    .object({
+      amount: z.string().optional(),
+      account: z.string().optional(),
+      recipient: z.string().optional(),
+      to: z.string().optional(),
+      transaction_hash: z.string().optional(),
+    })
+    .passthrough(),
 });
 
 export type LendingPoolEvent = z.infer<typeof LendingPoolEventSchema>;
@@ -47,14 +51,16 @@ export type LendingPoolEvent = z.infer<typeof LendingPoolEventSchema>;
 // ===================== SAVINGS VAULT EVENT SCHEMA =====================
 
 export const SavingsVaultEventSchema = BaseEventSchema.extend({
-  type: z.enum(['contract_credited', 'contract_debited', 'contract_effect']),
-  data: z.object({
-    amount: z.string().optional(),
-    account: z.string().optional(),
-    recipient: z.string().optional(),
-    to: z.string().optional(),
-    transaction_hash: z.string().optional(),
-  }).passthrough(),
+  type: z.enum(["contract_credited", "contract_debited", "contract_effect"]),
+  data: z
+    .object({
+      amount: z.string().optional(),
+      account: z.string().optional(),
+      recipient: z.string().optional(),
+      to: z.string().optional(),
+      transaction_hash: z.string().optional(),
+    })
+    .passthrough(),
 });
 
 export type SavingsVaultEvent = z.infer<typeof SavingsVaultEventSchema>;
@@ -101,16 +107,18 @@ export type AuditLog = z.infer<typeof AuditLogSchema>;
 // ===================== NOTIFICATION SCHEMAS =====================
 
 export const OtpSendSchema = z.object({
-  channel: z.enum(['email', 'sms']),
+  channel: z.enum(["email", "sms"]),
   to: z.string().min(1),
   code: z.string().min(1),
 });
 
 export type OtpSend = z.infer<typeof OtpSendSchema>;
 
-export const NotificationSchema = z.object({
-  type: z.enum(['reserve_alert', 'withdrawal_status', 'investment_withdrawal_ready']),
-}).passthrough();
+export const NotificationSchema = z
+  .object({
+    type: z.enum(["reserve_alert", "withdrawal_status", "investment_withdrawal_ready"]),
+  })
+  .passthrough();
 
 export type Notification = z.infer<typeof NotificationSchema>;
 

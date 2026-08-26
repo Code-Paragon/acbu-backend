@@ -12,11 +12,9 @@ jest.mock("../src/services/stellar/client", () => ({
   stellarClient: { getKeypair: jest.fn(() => ({ publicKey: () => "test-pub-key" })) },
 }));
 
-// Mock the shared database singleton — the one the service now imports.
-const mockTransactionUpdate = jest.fn();
 jest.mock("../src/config/database", () => ({
   prisma: {
-    transaction: { update: mockTransactionUpdate },
+    transaction: { update: jest.fn() },
   },
 }));
 
@@ -42,7 +40,7 @@ describe("MintingService Compensation", () => {
       } as any),
     ).rejects.toThrow("Stellar Fail");
 
-    expect(mockTransactionUpdate).toHaveBeenCalledWith({
+    expect(prisma.transaction.update).toHaveBeenCalledWith({
       where: { id: "123" },
       data: { status: "FAILED" },
     });

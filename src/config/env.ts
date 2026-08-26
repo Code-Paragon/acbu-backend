@@ -159,7 +159,7 @@ if (
   );
 }
 
-// #751: USDC issuers required in production only
+// #751: USDC issuers required in production only — relaxed for local dev/test so .env.local boots without them
 if (parsed.data.NODE_ENV === "production" && !parsed.data.USDC_ISSUER_TESTNET) {
   throw new Error("Missing required environment variable: USDC_ISSUER_TESTNET");
 }
